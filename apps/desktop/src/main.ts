@@ -23,6 +23,7 @@ import type {
   ClientSettings,
   DesktopTheme,
   DesktopAppBranding,
+  DesktopJsonHttpRequest,
   DesktopServerExposureMode,
   DesktopServerExposureState,
   DesktopUpdateChannel,
@@ -102,6 +103,7 @@ const SET_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:set-saved-environment-secr
 const REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:remove-saved-environment-secret";
 const GET_SERVER_EXPOSURE_STATE_CHANNEL = "desktop:get-server-exposure-state";
 const SET_SERVER_EXPOSURE_MODE_CHANNEL = "desktop:set-server-exposure-mode";
+const REQUEST_JSON_HTTP_CHANNEL = "desktop:request-json-http";
 const BASE_DIR = process.env.T3CODE_HOME?.trim() || Path.join(OS.homedir(), ".t3");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
@@ -286,6 +288,48 @@ function resolveDesktopDevServerUrl(): string {
   }
 
   return devServerUrl;
+}
+
+function normalizeDesktopJsonHttpRequest(
+  rawRequest: unknown,
+): Required<Pick<DesktopJsonHttpRequest, "url" | "method">> &
+  Pick<DesktopJsonHttpRequest, "headers" | "body"> {
+  if (typeof rawRequest !== "object" || rawRequest === null) {
+    throw new Error("Invalid desktop HTTP request payload.");
+  }
+
+  const { url, method, headers, body } = rawRequest as DesktopJsonHttpRequest;
+  if (typeof url !== "string" || url.trim().length === 0) {
+    throw new Error("Invalid desktop HTTP request URL.");
+  }
+
+  const parsedUrl = new URL(url);
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    throw new Error("Desktop HTTP requests only support http and https URLs.");
+  }
+
+  if (method !== undefined && method !== "GET" && method !== "POST") {
+    throw new Error("Desktop HTTP requests only support GET and POST.");
+  }
+
+  if (headers !== undefined) {
+    if (typeof headers !== "object" || headers === null || Array.isArray(headers)) {
+      throw new Error("Invalid desktop HTTP request headers.");
+    }
+
+    for (const [headerName, headerValue] of Object.entries(headers)) {
+      if (typeof headerValue !== "string") {
+        throw new Error(`Invalid desktop HTTP request header '${headerName}'.`);
+      }
+    }
+  }
+
+  return {
+    url: parsedUrl.toString(),
+    method: method ?? "GET",
+    ...(headers !== undefined ? { headers } : {}),
+    ...(body !== undefined ? { body } : {}),
+  };
 }
 
 function backendChildEnv(): NodeJS.ProcessEnv {
@@ -1667,6 +1711,22 @@ function registerIpcHandlers(): void {
     });
     relaunchDesktopApp(`serverExposureMode=${nextMode}`);
     return nextState;
+  });
+
+  ipcMain.removeHandler(REQUEST_JSON_HTTP_CHANNEL);
+  ipcMain.handle(REQUEST_JSON_HTTP_CHANNEL, async (_event, rawRequest: unknown) => {
+    const request = normalizeDesktopJsonHttpRequest(rawRequest);
+    const response = await fetch(request.url, {
+      method: request.method,
+      ...(request.headers !== undefined ? { headers: request.headers } : {}),
+      ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {}),
+    });
+    const bodyText = await response.text();
+    return {
+      status: response.status,
+      ok: response.ok,
+      bodyText,
+    };
   });
 
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);

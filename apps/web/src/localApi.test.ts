@@ -179,6 +179,9 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
       endpointUrl: null,
       advertisedHost: null,
     }),
+    requestJsonHttp: async () => {
+      throw new Error("requestJsonHttp not implemented in test");
+    },
     pickFolder: async () => null,
     confirm: async () => true,
     setTheme: async () => undefined,

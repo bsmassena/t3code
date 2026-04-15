@@ -18,6 +18,7 @@ beforeEach(() => {
       location: {
         origin: "https://app.example.com",
       },
+      desktopBridge: undefined,
     },
   });
   vi.restoreAllMocks();
@@ -227,6 +228,48 @@ describe("remote environment api", () => {
         bearerToken: "bearer-token",
       }),
     ).resolves.toBe("wss://remote.example.com/?wsToken=ws-token");
+  });
+
+  it("uses the desktop bridge for remote descriptor requests inside Electron", async () => {
+    const requestJsonHttp = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      bodyText: JSON.stringify({
+        environmentId: "environment-remote",
+        label: "Remote environment",
+        platform: {
+          os: "linux",
+          arch: "x64",
+        },
+        serverVersion: "0.0.0-test",
+        capabilities: {
+          repositoryIdentity: true,
+        },
+      }),
+    });
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as typeof fetch;
+    Object.assign(window, {
+      desktopBridge: {
+        requestJsonHttp,
+      },
+    });
+
+    await expect(
+      fetchRemoteEnvironmentDescriptor({
+        httpBaseUrl: "https://remote.example.com/",
+      }),
+    ).resolves.toMatchObject({
+      environmentId: "environment-remote",
+      label: "Remote environment",
+    });
+
+    expect(requestJsonHttp).toHaveBeenCalledWith({
+      url: "https://remote.example.com/.well-known/t3/environment",
+      method: "GET",
+      headers: {},
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

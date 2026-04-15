@@ -146,6 +146,19 @@ export interface PickFolderOptions {
   initialPath?: string | null;
 }
 
+export interface DesktopJsonHttpRequest {
+  url: string;
+  method?: "GET" | "POST";
+  headers?: Readonly<Record<string, string>>;
+  body?: unknown;
+}
+
+export interface DesktopJsonHttpResponse {
+  status: number;
+  ok: boolean;
+  bodyText: string;
+}
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   getLocalEnvironmentBootstrap: () => DesktopEnvironmentBootstrap | null;
@@ -160,6 +173,7 @@ export interface DesktopBridge {
   removeSavedEnvironmentSecret: (environmentId: EnvironmentId) => Promise<void>;
   getServerExposureState: () => Promise<DesktopServerExposureState>;
   setServerExposureMode: (mode: DesktopServerExposureMode) => Promise<DesktopServerExposureState>;
+  requestJsonHttp: (request: DesktopJsonHttpRequest) => Promise<DesktopJsonHttpResponse>;
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;

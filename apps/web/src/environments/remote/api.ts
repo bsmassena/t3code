@@ -2,6 +2,7 @@ import type {
   AuthBearerBootstrapResult,
   AuthSessionState,
   AuthWebSocketTokenResult,
+  DesktopBridge,
   ExecutionEnvironmentDescriptor,
 } from "@t3tools/contracts";
 
@@ -52,16 +53,36 @@ async function fetchRemoteJson<T>(input: {
   readonly body?: unknown;
 }): Promise<T> {
   const requestUrl = remoteEndpointUrl(input.httpBaseUrl, input.pathname);
-  let response: Response;
+  const headers = {
+    ...(input.body !== undefined ? { "content-type": "application/json" } : {}),
+    ...(input.bearerToken ? { authorization: `Bearer ${input.bearerToken}` } : {}),
+  };
+  let responseBodyText: string;
+  let responseOk: boolean;
+  let responseStatus: number;
   try {
-    response = await fetch(requestUrl, {
-      method: input.method ?? "GET",
-      headers: {
-        ...(input.body !== undefined ? { "content-type": "application/json" } : {}),
-        ...(input.bearerToken ? { authorization: `Bearer ${input.bearerToken}` } : {}),
-      },
-      ...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {}),
-    });
+    const desktopBridge: DesktopBridge | undefined =
+      typeof window !== "undefined" ? window.desktopBridge : undefined;
+    if (desktopBridge?.requestJsonHttp) {
+      const response = await desktopBridge.requestJsonHttp({
+        url: requestUrl,
+        method: input.method ?? "GET",
+        headers,
+        ...(input.body !== undefined ? { body: input.body } : {}),
+      });
+      responseBodyText = response.bodyText;
+      responseOk = response.ok;
+      responseStatus = response.status;
+    } else {
+      const response = await fetch(requestUrl, {
+        method: input.method ?? "GET",
+        headers,
+        ...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {}),
+      });
+      responseBodyText = await response.text();
+      responseOk = response.ok;
+      responseStatus = response.status;
+    }
   } catch (error) {
     throw new Error(
       `Failed to fetch remote auth endpoint ${requestUrl} (${(error as Error).message}).`,
@@ -69,17 +90,17 @@ async function fetchRemoteJson<T>(input: {
     );
   }
 
-  if (!response.ok) {
+  if (!responseOk) {
     throw new RemoteEnvironmentAuthHttpError(
       await readRemoteAuthErrorMessage(
-        response,
-        `Remote auth request failed (${response.status}).`,
+        new Response(responseBodyText, { status: responseStatus }),
+        `Remote auth request failed (${responseStatus}).`,
       ),
-      response.status,
+      responseStatus,
     );
   }
 
-  return (await response.json()) as T;
+  return JSON.parse(responseBodyText) as T;
 }
 
 export async function bootstrapRemoteBearerSession(input: {
