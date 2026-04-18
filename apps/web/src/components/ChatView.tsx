@@ -162,6 +162,7 @@ import {
   deriveLockedProvider,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
+  resolveSettledThreadVisitUpdate,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
@@ -787,6 +788,10 @@ export default function ChatView(props: ChatViewProps) {
   );
   const isServerThread = routeKind === "server" && serverThread !== undefined;
   const activeThread = isServerThread ? serverThread : localDraftThread;
+  const serverThreadKey =
+    routeKind === "server" && serverThread
+      ? scopedThreadKey(scopeThreadRef(serverThread.environmentId, serverThread.id))
+      : null;
   const runtimeMode = composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
     composerInteractionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
@@ -1011,22 +1016,25 @@ export default function ChatView(props: ChatViewProps) {
   );
 
   useEffect(() => {
-    if (!serverThread?.id) return;
+    if (routeKind !== "server") return;
     if (!latestTurnSettled) return;
-    if (!activeLatestTurn?.completedAt) return;
-    const turnCompletedAt = Date.parse(activeLatestTurn.completedAt);
-    if (Number.isNaN(turnCompletedAt)) return;
-    const lastVisitedAt = activeThreadLastVisitedAt ? Date.parse(activeThreadLastVisitedAt) : NaN;
-    if (!Number.isNaN(lastVisitedAt) && lastVisitedAt >= turnCompletedAt) return;
+    const settledVisitUpdate = resolveSettledThreadVisitUpdate({
+      routeThreadKey,
+      serverThreadKey,
+      latestTurnCompletedAt: activeLatestTurn?.completedAt,
+      lastVisitedAt: activeThreadLastVisitedAt,
+    });
+    if (!settledVisitUpdate) return;
 
-    markThreadVisited(scopedThreadKey(scopeThreadRef(serverThread.environmentId, serverThread.id)));
+    markThreadVisited(settledVisitUpdate.threadKey, settledVisitUpdate.visitedAt);
   }, [
     activeLatestTurn?.completedAt,
     activeThreadLastVisitedAt,
     latestTurnSettled,
     markThreadVisited,
-    serverThread?.environmentId,
-    serverThread?.id,
+    routeKind,
+    routeThreadKey,
+    serverThreadKey,
   ]);
 
   const selectedProviderByThreadId = composerActiveProvider ?? null;

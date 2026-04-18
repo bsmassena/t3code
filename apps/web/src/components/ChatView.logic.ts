@@ -220,6 +220,51 @@ export function buildExpiredTerminalContextToastCopy(
   };
 }
 
+export function resolveSettledThreadVisitedAt(input: {
+  latestTurnCompletedAt: string | null | undefined;
+  lastVisitedAt: string | null | undefined;
+}): string | null {
+  if (!input.latestTurnCompletedAt) {
+    return null;
+  }
+
+  const latestTurnCompletedAtMs = Date.parse(input.latestTurnCompletedAt);
+  if (Number.isNaN(latestTurnCompletedAtMs)) {
+    return null;
+  }
+
+  const lastVisitedAtMs = input.lastVisitedAt ? Date.parse(input.lastVisitedAt) : NaN;
+  if (!Number.isNaN(lastVisitedAtMs) && lastVisitedAtMs >= latestTurnCompletedAtMs) {
+    return null;
+  }
+
+  return input.latestTurnCompletedAt;
+}
+
+export function resolveSettledThreadVisitUpdate(input: {
+  routeThreadKey: string;
+  serverThreadKey: string | null;
+  latestTurnCompletedAt: string | null | undefined;
+  lastVisitedAt: string | null | undefined;
+}): { threadKey: string; visitedAt: string } | null {
+  if (!input.serverThreadKey || input.serverThreadKey !== input.routeThreadKey) {
+    return null;
+  }
+
+  const visitedAt = resolveSettledThreadVisitedAt({
+    latestTurnCompletedAt: input.latestTurnCompletedAt,
+    lastVisitedAt: input.lastVisitedAt,
+  });
+  if (!visitedAt) {
+    return null;
+  }
+
+  return {
+    threadKey: input.routeThreadKey,
+    visitedAt,
+  };
+}
+
 export function threadHasStarted(thread: Thread | null | undefined): boolean {
   return Boolean(
     thread && (thread.latestTurn !== null || thread.messages.length > 0 || thread.session !== null),

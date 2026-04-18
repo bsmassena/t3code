@@ -11,6 +11,8 @@ import {
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
+  resolveSettledThreadVisitUpdate,
+  resolveSettledThreadVisitedAt,
   resolveSendEnvMode,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
@@ -80,6 +82,62 @@ describe("buildExpiredTerminalContextToastCopy", () => {
       title: "Expired terminal contexts omitted from message",
       description: "Re-add it if you want that terminal output included.",
     });
+  });
+});
+
+describe("resolveSettledThreadVisitedAt", () => {
+  it("returns the completed turn timestamp when the thread is still unread", () => {
+    expect(
+      resolveSettledThreadVisitedAt({
+        latestTurnCompletedAt: "2026-04-17T12:00:05.000Z",
+        lastVisitedAt: "2026-04-17T12:00:00.000Z",
+      }),
+    ).toBe("2026-04-17T12:00:05.000Z");
+  });
+
+  it("does not re-mark a thread that was already visited after completion", () => {
+    expect(
+      resolveSettledThreadVisitedAt({
+        latestTurnCompletedAt: "2026-04-17T12:00:05.000Z",
+        lastVisitedAt: "2026-04-17T12:00:06.000Z",
+      }),
+    ).toBeNull();
+  });
+
+  it("uses the server completion timestamp even when it is ahead of the prior visit time", () => {
+    expect(
+      resolveSettledThreadVisitedAt({
+        latestTurnCompletedAt: "2026-04-17T12:00:30.000Z",
+        lastVisitedAt: "2026-04-17T12:00:00.000Z",
+      }),
+    ).toBe("2026-04-17T12:00:30.000Z");
+  });
+});
+
+describe("resolveSettledThreadVisitUpdate", () => {
+  it("uses the route thread key when the server snapshot matches the route", () => {
+    expect(
+      resolveSettledThreadVisitUpdate({
+        routeThreadKey: "environment-local:thread-1",
+        serverThreadKey: "environment-local:thread-1",
+        latestTurnCompletedAt: "2026-04-17T12:00:05.000Z",
+        lastVisitedAt: "2026-04-17T12:00:00.000Z",
+      }),
+    ).toEqual({
+      threadKey: "environment-local:thread-1",
+      visitedAt: "2026-04-17T12:00:05.000Z",
+    });
+  });
+
+  it("does not emit an update when the server snapshot key diverges from the route", () => {
+    expect(
+      resolveSettledThreadVisitUpdate({
+        routeThreadKey: "environment-local:thread-1",
+        serverThreadKey: "environment-local:thread-2",
+        latestTurnCompletedAt: "2026-04-17T12:00:05.000Z",
+        lastVisitedAt: "2026-04-17T12:00:00.000Z",
+      }),
+    ).toBeNull();
   });
 });
 
