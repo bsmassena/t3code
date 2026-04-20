@@ -201,9 +201,17 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
 const EMPTY_THREAD_JUMP_LABELS = new Map<string, string>();
 const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> = {
   repository: "Group by repository",
+  parent_directory: "Group by parent directory",
   repository_path: "Group by repository path",
   separate: "Keep separate",
 };
+const PROJECT_GROUPING_MODE_OPTIONS = [
+  "repository",
+  "parent_directory",
+  "repository_path",
+  "separate",
+] as const satisfies readonly SidebarProjectGroupingMode[];
+type ProjectGroupingSelection = SidebarProjectGroupingMode | "inherit";
 
 function formatProjectMemberActionLabel(
   member: SidebarProjectGroupMember,
@@ -220,11 +228,46 @@ function projectGroupingModeDescription(mode: SidebarProjectGroupingMode): strin
   switch (mode) {
     case "repository":
       return "Projects from the same repository share one sidebar row.";
+    case "parent_directory":
+      return "Projects in the same environment share one row when their parent directory path matches.";
     case "repository_path":
       return "Projects group only when both the repository and repo-relative path match.";
     case "separate":
       return "Every project path gets its own sidebar row.";
   }
+}
+
+function isSidebarProjectGroupingMode(
+  value: string | null | undefined,
+): value is SidebarProjectGroupingMode {
+  return (
+    typeof value === "string" &&
+    PROJECT_GROUPING_MODE_OPTIONS.includes(value as SidebarProjectGroupingMode)
+  );
+}
+
+function isProjectGroupingSelection(
+  value: string | null | undefined,
+): value is ProjectGroupingSelection {
+  return value === "inherit" || isSidebarProjectGroupingMode(value);
+}
+
+function projectGroupingSelectionLabel(
+  selection: ProjectGroupingSelection,
+  globalMode: SidebarProjectGroupingMode,
+): string {
+  if (selection === "inherit") {
+    return `Use global default (${PROJECT_GROUPING_MODE_LABELS[globalMode]})`;
+  }
+
+  return PROJECT_GROUPING_MODE_LABELS[selection];
+}
+
+function projectGroupingSelectionDescription(
+  selection: ProjectGroupingSelection,
+  globalMode: SidebarProjectGroupingMode,
+): string {
+  return projectGroupingModeDescription(selection === "inherit" ? globalMode : selection);
 }
 
 function buildThreadJumpLabelMap(input: {
@@ -927,6 +970,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
   const projectGroupingSettings = useSettings((settings) => ({
     sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
+    sidebarProjectManualGroups: settings.sidebarProjectManualGroups,
     sidebarProjectGroupingOverrides: settings.sidebarProjectGroupingOverrides,
   }));
   const { updateSettings } = useUpdateSettings();
@@ -1049,9 +1093,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const [projectRenameTitle, setProjectRenameTitle] = useState("");
   const [projectGroupingTarget, setProjectGroupingTarget] =
     useState<SidebarProjectGroupMember | null>(null);
-  const [projectGroupingSelection, setProjectGroupingSelection] = useState<
-    SidebarProjectGroupingMode | "inherit"
-  >("inherit");
+  const [projectGroupingSelection, setProjectGroupingSelection] =
+    useState<ProjectGroupingSelection>("inherit");
+  const [projectManualGroupName, setProjectManualGroupName] = useState("");
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const confirmArchiveButtonRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -1263,11 +1307,17 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     (member: SidebarProjectGroupMember) => {
       const overrideKey = deriveProjectGroupingOverrideKey(member);
       setProjectGroupingTarget(member);
+      setProjectManualGroupName(
+        projectGroupingSettings.sidebarProjectManualGroups?.[overrideKey] ?? "",
+      );
       setProjectGroupingSelection(
         projectGroupingSettings.sidebarProjectGroupingOverrides?.[overrideKey] ?? "inherit",
       );
     },
-    [projectGroupingSettings.sidebarProjectGroupingOverrides],
+    [
+      projectGroupingSettings.sidebarProjectGroupingOverrides,
+      projectGroupingSettings.sidebarProjectManualGroups,
+    ],
   );
 
   const removeProject = useCallback(
@@ -1838,6 +1888,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
   const closeProjectGroupingDialog = useCallback(() => {
     setProjectGroupingTarget(null);
+    setProjectManualGroupName("");
     setProjectGroupingSelection("inherit");
   }, []);
 
@@ -1850,18 +1901,30 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     const nextOverrides = {
       ...projectGroupingSettings.sidebarProjectGroupingOverrides,
     };
+    const nextManualGroups = {
+      ...projectGroupingSettings.sidebarProjectManualGroups,
+    };
     if (projectGroupingSelection === "inherit") {
       delete nextOverrides[overrideKey];
     } else {
       nextOverrides[overrideKey] = projectGroupingSelection;
     }
+    const trimmedManualGroupName = projectManualGroupName.trim().replace(/\s+/g, " ");
+    if (trimmedManualGroupName.length === 0) {
+      delete nextManualGroups[overrideKey];
+    } else {
+      nextManualGroups[overrideKey] = trimmedManualGroupName;
+    }
     updateSettings({
+      sidebarProjectManualGroups: nextManualGroups,
       sidebarProjectGroupingOverrides: nextOverrides,
     });
     closeProjectGroupingDialog();
   }, [
     closeProjectGroupingDialog,
+    projectManualGroupName,
     projectGroupingSelection,
+    projectGroupingSettings.sidebarProjectManualGroups,
     projectGroupingSettings.sidebarProjectGroupingOverrides,
     projectGroupingTarget,
     updateSettings,
@@ -2139,57 +2202,70 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 : "Choose how this project should be grouped in the sidebar."}
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel className="space-y-4">
-            <div className="grid gap-1.5">
-              <span className="text-xs font-medium text-foreground">Grouping rule</span>
-              <Select
-                value={projectGroupingSelection}
-                onValueChange={(value) => {
-                  if (
-                    value === "inherit" ||
-                    value === "repository" ||
-                    value === "repository_path" ||
-                    value === "separate"
-                  ) {
-                    setProjectGroupingSelection(value);
-                  }
-                }}
-              >
-                <SelectTrigger className="w-full" aria-label="Project grouping rule">
-                  <SelectValue>
-                    {projectGroupingSelection === "inherit"
-                      ? `Use global default (${PROJECT_GROUPING_MODE_LABELS[projectGroupingSettings.sidebarProjectGroupingMode]})`
-                      : PROJECT_GROUPING_MODE_LABELS[projectGroupingSelection]}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem hideIndicator value="inherit">
-                    Use global default
-                  </SelectItem>
-                  <SelectItem hideIndicator value="repository">
-                    {PROJECT_GROUPING_MODE_LABELS.repository}
-                  </SelectItem>
-                  <SelectItem hideIndicator value="repository_path">
-                    {PROJECT_GROUPING_MODE_LABELS.repository_path}
-                  </SelectItem>
-                  <SelectItem hideIndicator value="separate">
-                    {PROJECT_GROUPING_MODE_LABELS.separate}
-                  </SelectItem>
-                </SelectPopup>
-              </Select>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {projectGroupingSelection === "inherit"
-                ? projectGroupingModeDescription(projectGroupingSettings.sidebarProjectGroupingMode)
-                : projectGroupingModeDescription(projectGroupingSelection)}
-            </p>
-          </DialogPanel>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeProjectGroupingDialog}>
-              Cancel
-            </Button>
-            <Button onClick={saveProjectGroupingPreference}>Save</Button>
-          </DialogFooter>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveProjectGroupingPreference();
+            }}
+          >
+            <DialogPanel className="space-y-4">
+              <div className="grid gap-1.5">
+                <span className="text-xs font-medium text-foreground">Manual group</span>
+                <Input
+                  aria-label="Manual project group"
+                  placeholder="Example: Client work"
+                  value={projectManualGroupName}
+                  onChange={(event) => setProjectManualGroupName(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Projects with the same manual group share one sidebar row regardless of the
+                  automatic rule below.
+                </p>
+              </div>
+              <div className="grid gap-1.5">
+                <span className="text-xs font-medium text-foreground">Grouping rule</span>
+                <Select
+                  value={projectGroupingSelection}
+                  onValueChange={(value) => {
+                    if (isProjectGroupingSelection(value)) {
+                      setProjectGroupingSelection(value);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full" aria-label="Project grouping rule">
+                    <SelectValue>
+                      {projectGroupingSelectionLabel(
+                        projectGroupingSelection,
+                        projectGroupingSettings.sidebarProjectGroupingMode,
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem hideIndicator value="inherit">
+                      Use global default
+                    </SelectItem>
+                    {PROJECT_GROUPING_MODE_OPTIONS.map((mode) => (
+                      <SelectItem key={mode} hideIndicator value={mode}>
+                        {PROJECT_GROUPING_MODE_LABELS[mode]}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {projectGroupingSelectionDescription(
+                  projectGroupingSelection,
+                  projectGroupingSettings.sidebarProjectGroupingMode,
+                )}
+              </p>
+            </DialogPanel>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeProjectGroupingDialog}>
+                Cancel
+              </Button>
+              <Button type="submit">Save</Button>
+            </DialogFooter>
+          </form>
         </DialogPopup>
       </Dialog>
     </>
@@ -2299,18 +2375,14 @@ function ProjectSortMenu({
           <MenuRadioGroup
             value={projectGroupingMode}
             onValueChange={(value) => {
-              if (value === "repository" || value === "repository_path" || value === "separate") {
+              if (isSidebarProjectGroupingMode(value)) {
                 onProjectGroupingModeChange(value);
               }
             }}
           >
-            {(
-              Object.entries(PROJECT_GROUPING_MODE_LABELS) as Array<
-                [SidebarProjectGroupingMode, string]
-              >
-            ).map(([value, label]) => (
-              <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
-                {label}
+            {PROJECT_GROUPING_MODE_OPTIONS.map((mode) => (
+              <MenuRadioItem key={mode} value={mode} className="min-h-7 py-1 sm:text-xs">
+                {PROJECT_GROUPING_MODE_LABELS[mode]}
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>
@@ -2698,6 +2770,7 @@ export default function Sidebar() {
   const sidebarProjectGroupingMode = useSettings((s) => s.sidebarProjectGroupingMode);
   const projectGroupingSettings = useSettings((settings) => ({
     sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
+    sidebarProjectManualGroups: settings.sidebarProjectManualGroups,
     sidebarProjectGroupingOverrides: settings.sidebarProjectGroupingOverrides,
   }));
   const { updateSettings } = useUpdateSettings();

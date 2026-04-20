@@ -21,6 +21,7 @@ function useNewThreadState() {
   const projects = useStore(useShallow((store) => selectProjectsAcrossEnvironments(store)));
   const projectGroupingSettings = useSettings((settings) => ({
     sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
+    sidebarProjectManualGroups: settings.sidebarProjectManualGroups,
     sidebarProjectGroupingOverrides: settings.sidebarProjectGroupingOverrides,
   }));
   const router = useRouter();

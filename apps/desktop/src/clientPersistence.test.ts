@@ -55,6 +55,9 @@ const clientSettings: ClientSettings = {
   diffWordWrap: true,
   favorites: [],
   sidebarProjectGroupingMode: "repository_path",
+  sidebarProjectManualGroups: {
+    "environment-1:/tmp/project-a": "Client work",
+  },
   sidebarProjectGroupingOverrides: {
     "environment-1:/tmp/project-a": "separate",
   },

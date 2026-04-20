@@ -538,6 +538,9 @@ describe("wsApi", () => {
       diffWordWrap: true,
       favorites: [],
       sidebarProjectGroupingMode: "repository_path" as const,
+      sidebarProjectManualGroups: {
+        "environment-local:/tmp/project": "Client work",
+      },
       sidebarProjectGroupingOverrides: {
         "environment-local:/tmp/project": "separate" as const,
       },
@@ -597,6 +600,9 @@ describe("wsApi", () => {
       diffWordWrap: true,
       favorites: [],
       sidebarProjectGroupingMode: "repository_path" as const,
+      sidebarProjectManualGroups: {
+        "environment-local:/tmp/project": "Client work",
+      },
       sidebarProjectGroupingOverrides: {
         "environment-local:/tmp/project": "separate" as const,
       },

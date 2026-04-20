@@ -16,6 +16,7 @@ import {
   derivePhysicalProjectKey,
   resolveProjectGroupingMode,
 } from "./logicalProject";
+import { buildSidebarProjectSnapshots } from "./sidebarProjectGrouping";
 import type { Project, SidebarThreadSummary } from "./types";
 import { DEFAULT_INTERACTION_MODE } from "./types";
 
@@ -38,8 +39,10 @@ const threadRO1 = ThreadId.make("thread-remote-only-1");
 const SHARED_REPO_CANONICAL_KEY = "github.com/example/shared-repo";
 const DEFAULT_GROUPING_SETTINGS = {
   sidebarProjectGroupingMode: "repository" as const,
+  sidebarProjectManualGroups: {},
   sidebarProjectGroupingOverrides: {},
 };
+const SHARED_REPO_REMOTE_URL = "https://github.com/example/shared-repo.git";
 
 // ── Factory Helpers ──────────────────────────────────────────────────
 
@@ -77,6 +80,28 @@ function makeSidebarThreadSummary(
   };
 }
 
+function makeSharedRepoProject(
+  overrides: Partial<Project> &
+    Pick<Project, "id" | "environmentId" | "name"> & {
+      rootPath?: string;
+    },
+): Project {
+  const { rootPath, ...projectOverrides } = overrides;
+
+  return makeProject({
+    ...projectOverrides,
+    repositoryIdentity: {
+      canonicalKey: SHARED_REPO_CANONICAL_KEY,
+      ...(rootPath ? { rootPath } : {}),
+      locator: {
+        source: "git-remote",
+        remoteName: "origin",
+        remoteUrl: SHARED_REPO_REMOTE_URL,
+      },
+    },
+  });
+}
+
 function makeEmptyEnvironmentState(): EnvironmentState {
   return {
     projectIds: [],
@@ -103,31 +128,15 @@ function makeEmptyEnvironmentState(): EnvironmentState {
 
 function makeFixtureState(): AppState {
   // Shared project: same repo in both envs
-  const sharedProjectPrimary = makeProject({
+  const sharedProjectPrimary = makeSharedRepoProject({
     id: sharedProjectPrimaryId,
     environmentId: primaryEnvId,
     name: "shared-repo",
-    repositoryIdentity: {
-      canonicalKey: SHARED_REPO_CANONICAL_KEY,
-      locator: {
-        source: "git-remote",
-        remoteName: "origin",
-        remoteUrl: "https://github.com/example/shared-repo.git",
-      },
-    },
   });
-  const sharedProjectRemote = makeProject({
+  const sharedProjectRemote = makeSharedRepoProject({
     id: sharedProjectRemoteId,
     environmentId: remoteEnvId,
     name: "shared-repo",
-    repositoryIdentity: {
-      canonicalKey: SHARED_REPO_CANONICAL_KEY,
-      locator: {
-        source: "git-remote",
-        remoteName: "origin",
-        remoteUrl: "https://github.com/example/shared-repo.git",
-      },
-    },
   });
   // Local-only project
   const localOnlyProject = makeProject({
@@ -225,18 +234,10 @@ function makeFixtureState(): AppState {
 describe("environment grouping", () => {
   describe("deriveLogicalProjectKey", () => {
     it("uses repositoryIdentity.canonicalKey when present", () => {
-      const project = makeProject({
+      const project = makeSharedRepoProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
         name: "shared-repo",
-        repositoryIdentity: {
-          canonicalKey: SHARED_REPO_CANONICAL_KEY,
-          locator: {
-            source: "git-remote",
-            remoteName: "origin",
-            remoteUrl: "https://github.com/example/shared-repo.git",
-          },
-        },
       });
       expect(deriveLogicalProjectKey(project)).toBe(SHARED_REPO_CANONICAL_KEY);
     });
@@ -251,65 +252,33 @@ describe("environment grouping", () => {
     });
 
     it("groups projects from different environments that share the same canonical key", () => {
-      const primary = makeProject({
+      const primary = makeSharedRepoProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
         name: "shared-repo",
-        repositoryIdentity: {
-          canonicalKey: SHARED_REPO_CANONICAL_KEY,
-          locator: {
-            source: "git-remote",
-            remoteName: "origin",
-            remoteUrl: "https://github.com/example/shared-repo.git",
-          },
-        },
       });
-      const remote = makeProject({
+      const remote = makeSharedRepoProject({
         id: sharedProjectRemoteId,
         environmentId: remoteEnvId,
         name: "shared-repo",
-        repositoryIdentity: {
-          canonicalKey: SHARED_REPO_CANONICAL_KEY,
-          locator: {
-            source: "git-remote",
-            remoteName: "origin",
-            remoteUrl: "https://github.com/example/shared-repo.git",
-          },
-        },
       });
       expect(deriveLogicalProjectKey(primary)).toBe(deriveLogicalProjectKey(remote));
     });
 
     it("groups repo root and nested projects from the same repository by default", () => {
-      const rootProject = makeProject({
+      const rootProject = makeSharedRepoProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
         name: "shared-repo",
         cwd: "/workspace/repo",
-        repositoryIdentity: {
-          canonicalKey: SHARED_REPO_CANONICAL_KEY,
-          rootPath: "/workspace/repo",
-          locator: {
-            source: "git-remote",
-            remoteName: "origin",
-            remoteUrl: "https://github.com/example/shared-repo.git",
-          },
-        },
+        rootPath: "/workspace/repo",
       });
-      const nestedProject = makeProject({
+      const nestedProject = makeSharedRepoProject({
         id: localOnlyProjectId,
         environmentId: primaryEnvId,
         name: "web",
         cwd: "/workspace/repo/apps/web",
-        repositoryIdentity: {
-          canonicalKey: SHARED_REPO_CANONICAL_KEY,
-          rootPath: "/workspace/repo",
-          locator: {
-            source: "git-remote",
-            remoteName: "origin",
-            remoteUrl: "https://github.com/example/shared-repo.git",
-          },
-        },
+        rootPath: "/workspace/repo",
       });
 
       expect(deriveLogicalProjectKey(rootProject)).toBe(SHARED_REPO_CANONICAL_KEY);
@@ -317,35 +286,19 @@ describe("environment grouping", () => {
     });
 
     it("uses repository path grouping when requested", () => {
-      const rootProject = makeProject({
+      const rootProject = makeSharedRepoProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
         name: "shared-repo",
         cwd: "/workspace/repo",
-        repositoryIdentity: {
-          canonicalKey: SHARED_REPO_CANONICAL_KEY,
-          rootPath: "/workspace/repo",
-          locator: {
-            source: "git-remote",
-            remoteName: "origin",
-            remoteUrl: "https://github.com/example/shared-repo.git",
-          },
-        },
+        rootPath: "/workspace/repo",
       });
-      const nestedProject = makeProject({
+      const nestedProject = makeSharedRepoProject({
         id: localOnlyProjectId,
         environmentId: primaryEnvId,
         name: "web",
         cwd: "/workspace/repo/apps/web",
-        repositoryIdentity: {
-          canonicalKey: SHARED_REPO_CANONICAL_KEY,
-          rootPath: "/workspace/repo",
-          locator: {
-            source: "git-remote",
-            remoteName: "origin",
-            remoteUrl: "https://github.com/example/shared-repo.git",
-          },
-        },
+        rootPath: "/workspace/repo",
       });
 
       expect(
@@ -360,36 +313,72 @@ describe("environment grouping", () => {
       ).toBe(`${SHARED_REPO_CANONICAL_KEY}::apps/web`);
     });
 
+    it("uses parent directory grouping when requested", () => {
+      const rootProject = makeSharedRepoProject({
+        id: sharedProjectPrimaryId,
+        environmentId: primaryEnvId,
+        name: "shared-repo",
+        cwd: "/workspace/repo",
+        rootPath: "/workspace/repo",
+      });
+      const webProject = makeSharedRepoProject({
+        id: localOnlyProjectId,
+        environmentId: primaryEnvId,
+        name: "web",
+        cwd: "/workspace/repo/apps/web",
+        rootPath: "/workspace/repo",
+      });
+      const docsProject = makeSharedRepoProject({
+        id: remoteOnlyProjectId,
+        environmentId: primaryEnvId,
+        name: "docs",
+        cwd: "/workspace/repo/apps/docs",
+        rootPath: "/workspace/repo",
+      });
+      const rootChildProject = makeSharedRepoProject({
+        id: sharedProjectRemoteId,
+        environmentId: primaryEnvId,
+        name: "scripts",
+        cwd: "/workspace/repo/scripts",
+        rootPath: "/workspace/repo",
+      });
+
+      expect(
+        deriveLogicalProjectKey(rootProject, {
+          groupingMode: "parent_directory",
+        }),
+      ).toBe(`${primaryEnvId}::parent:/workspace`);
+      expect(
+        deriveLogicalProjectKey(webProject, {
+          groupingMode: "parent_directory",
+        }),
+      ).toBe(`${primaryEnvId}::parent:/workspace/repo/apps`);
+      expect(
+        deriveLogicalProjectKey(docsProject, {
+          groupingMode: "parent_directory",
+        }),
+      ).toBe(`${primaryEnvId}::parent:/workspace/repo/apps`);
+      expect(
+        deriveLogicalProjectKey(rootChildProject, {
+          groupingMode: "parent_directory",
+        }),
+      ).toBe(`${primaryEnvId}::parent:/workspace/repo`);
+    });
+
     it("groups matching nested project paths across environments when repo roots differ", () => {
-      const primary = makeProject({
+      const primary = makeSharedRepoProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
         name: "web",
         cwd: "/workspace/repo/apps/web",
-        repositoryIdentity: {
-          canonicalKey: SHARED_REPO_CANONICAL_KEY,
-          rootPath: "/workspace/repo",
-          locator: {
-            source: "git-remote",
-            remoteName: "origin",
-            remoteUrl: "https://github.com/example/shared-repo.git",
-          },
-        },
+        rootPath: "/workspace/repo",
       });
-      const remote = makeProject({
+      const remote = makeSharedRepoProject({
         id: sharedProjectRemoteId,
         environmentId: remoteEnvId,
         name: "web",
         cwd: "/srv/checkout/apps/web",
-        repositoryIdentity: {
-          canonicalKey: SHARED_REPO_CANONICAL_KEY,
-          rootPath: "/srv/checkout",
-          locator: {
-            source: "git-remote",
-            remoteName: "origin",
-            remoteUrl: "https://github.com/example/shared-repo.git",
-          },
-        },
+        rootPath: "/srv/checkout",
       });
 
       expect(
@@ -404,6 +393,38 @@ describe("environment grouping", () => {
       ).toBe(
         deriveLogicalProjectKey(remote, {
           groupingMode: "repository_path",
+        }),
+      );
+    });
+
+    it("does not group matching parent directories across environments", () => {
+      const primary = makeSharedRepoProject({
+        id: sharedProjectPrimaryId,
+        environmentId: primaryEnvId,
+        name: "web",
+        cwd: "/workspace/repo/apps/web",
+        rootPath: "/workspace/repo",
+      });
+      const remote = makeSharedRepoProject({
+        id: sharedProjectRemoteId,
+        environmentId: remoteEnvId,
+        name: "docs",
+        cwd: "/srv/checkout/apps/docs",
+        rootPath: "/srv/checkout",
+      });
+
+      expect(
+        deriveLogicalProjectKey(primary, {
+          groupingMode: "parent_directory",
+        }),
+      ).toBe(`${primaryEnvId}::parent:/workspace/repo/apps`);
+      expect(
+        deriveLogicalProjectKey(primary, {
+          groupingMode: "parent_directory",
+        }),
+      ).not.toBe(
+        deriveLogicalProjectKey(remote, {
+          groupingMode: "parent_directory",
         }),
       );
     });
@@ -423,18 +444,10 @@ describe("environment grouping", () => {
     });
 
     it("uses per-project overrides from settings", () => {
-      const project = makeProject({
+      const project = makeSharedRepoProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
         name: "shared-repo",
-        repositoryIdentity: {
-          canonicalKey: SHARED_REPO_CANONICAL_KEY,
-          locator: {
-            source: "git-remote",
-            remoteName: "origin",
-            remoteUrl: "https://github.com/example/shared-repo.git",
-          },
-        },
       });
 
       expect(resolveProjectGroupingMode(project, DEFAULT_GROUPING_SETTINGS)).toBe("repository");
@@ -446,6 +459,39 @@ describe("environment grouping", () => {
           },
         }),
       ).toBe(derivePhysicalProjectKey(project));
+    });
+
+    it("prefers a manual project group over repository-based grouping", () => {
+      const local = makeProject({
+        id: sharedProjectPrimaryId,
+        environmentId: primaryEnvId,
+        name: "frontend",
+        cwd: "/workspace/client-a",
+      });
+      const remote = makeProject({
+        id: remoteOnlyProjectId,
+        environmentId: remoteEnvId,
+        name: "backend",
+        cwd: "/workspace/client-b",
+      });
+
+      expect(
+        deriveLogicalProjectKeyFromSettings(local, {
+          ...DEFAULT_GROUPING_SETTINGS,
+          sidebarProjectManualGroups: {
+            [derivePhysicalProjectKey(local)]: "Client work",
+            [derivePhysicalProjectKey(remote)]: "Client work",
+          },
+        }),
+      ).toBe(
+        deriveLogicalProjectKeyFromSettings(remote, {
+          ...DEFAULT_GROUPING_SETTINGS,
+          sidebarProjectManualGroups: {
+            [derivePhysicalProjectKey(local)]: "Client work",
+            [derivePhysicalProjectKey(remote)]: "Client work",
+          },
+        }),
+      );
     });
   });
 
@@ -609,6 +655,70 @@ describe("environment grouping", () => {
         allProjects.find((p) => p.id === remoteOnlyProjectId)!,
       );
       expect(groups.get(remoteKey)).toHaveLength(1);
+    });
+
+    it("uses the parent directory as the grouped sidebar label", () => {
+      const snapshots = buildSidebarProjectSnapshots({
+        projects: [
+          makeSharedRepoProject({
+            id: sharedProjectPrimaryId,
+            environmentId: primaryEnvId,
+            name: "web",
+            cwd: "/workspace/repo/apps/web",
+            rootPath: "/workspace/repo",
+          }),
+          makeSharedRepoProject({
+            id: sharedProjectRemoteId,
+            environmentId: primaryEnvId,
+            name: "docs",
+            cwd: "/workspace/repo/apps/docs",
+            rootPath: "/workspace/repo",
+          }),
+        ],
+        settings: {
+          sidebarProjectGroupingMode: "parent_directory",
+          sidebarProjectManualGroups: {},
+          sidebarProjectGroupingOverrides: {},
+        },
+        primaryEnvironmentId: primaryEnvId,
+        resolveEnvironmentLabel: () => null,
+      });
+
+      expect(snapshots).toHaveLength(1);
+      expect(snapshots[0]?.displayName).toBe("apps");
+      expect(snapshots[0]?.groupedProjectCount).toBe(2);
+    });
+
+    it("uses the manual group label as the sidebar label", () => {
+      const projectA = makeProject({
+        id: sharedProjectPrimaryId,
+        environmentId: primaryEnvId,
+        name: "client-a",
+        cwd: "/workspace/client-a",
+      });
+      const projectB = makeProject({
+        id: remoteOnlyProjectId,
+        environmentId: remoteEnvId,
+        name: "client-b",
+        cwd: "/workspace/client-b",
+      });
+
+      const snapshots = buildSidebarProjectSnapshots({
+        projects: [projectA, projectB],
+        settings: {
+          ...DEFAULT_GROUPING_SETTINGS,
+          sidebarProjectManualGroups: {
+            [derivePhysicalProjectKey(projectA)]: "Client work",
+            [derivePhysicalProjectKey(projectB)]: "Client work",
+          },
+        },
+        primaryEnvironmentId: primaryEnvId,
+        resolveEnvironmentLabel: () => null,
+      });
+
+      expect(snapshots).toHaveLength(1);
+      expect(snapshots[0]?.displayName).toBe("Client work");
+      expect(snapshots[0]?.groupedProjectCount).toBe(2);
     });
   });
 });

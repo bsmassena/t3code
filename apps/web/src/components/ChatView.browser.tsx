@@ -84,6 +84,7 @@ const PROJECT_LOGICAL_KEY = deriveLogicalProjectKeyFromSettings(
   },
   {
     sidebarProjectGroupingMode: DEFAULT_CLIENT_SETTINGS.sidebarProjectGroupingMode,
+    sidebarProjectManualGroups: DEFAULT_CLIENT_SETTINGS.sidebarProjectManualGroups,
     sidebarProjectGroupingOverrides: DEFAULT_CLIENT_SETTINGS.sidebarProjectGroupingOverrides,
   },
 );

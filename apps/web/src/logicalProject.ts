@@ -1,14 +1,20 @@
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime";
 import type { ScopedProjectRef, SidebarProjectGroupingMode } from "@t3tools/contracts";
-import { normalizeProjectPathForComparison } from "./lib/projectPaths";
+import {
+  getBrowseDirectoryPath,
+  inferProjectTitleFromPath,
+  normalizeProjectPathForComparison,
+} from "./lib/projectPaths";
 import type { Project } from "./types";
 
 export interface ProjectGroupingSettings {
   sidebarProjectGroupingMode: SidebarProjectGroupingMode;
+  sidebarProjectManualGroups: Record<string, string>;
   sidebarProjectGroupingOverrides: Record<string, SidebarProjectGroupingMode>;
 }
 
 export type ProjectGroupingMode = SidebarProjectGroupingMode;
+const MANUAL_PROJECT_GROUP_KEY_PREFIX = "manual-group:";
 
 function uniqueNonEmptyValues(values: ReadonlyArray<string | null | undefined>): string[] {
   const seen = new Set<string>();
@@ -51,6 +57,32 @@ function deriveRepositoryRelativeProjectPath(
   return normalizedProjectPath.slice(rootPrefix.length).replaceAll("\\", "/");
 }
 
+function deriveFilesystemParentPath(project: Pick<Project, "cwd">): string | null {
+  const normalizedProjectPath = normalizeProjectPathForComparison(project.cwd);
+  if (normalizedProjectPath.length === 0) {
+    return null;
+  }
+
+  const directoryPath = getBrowseDirectoryPath(normalizedProjectPath);
+  const parentPath = normalizeProjectPathForComparison(directoryPath);
+  if (parentPath.length === 0 || parentPath === normalizedProjectPath) {
+    return null;
+  }
+
+  return parentPath;
+}
+
+function deriveParentDirectoryGroupingKey(
+  project: Pick<Project, "cwd" | "environmentId">,
+): string | null {
+  const parentDirectoryPath = deriveFilesystemParentPath(project);
+  if (parentDirectoryPath === null) {
+    return null;
+  }
+
+  return `${project.environmentId}::parent:${parentDirectoryPath}`;
+}
+
 export function derivePhysicalProjectKeyFromPath(environmentId: string, cwd: string): string {
   return `${environmentId}:${normalizeProjectPathForComparison(cwd)}`;
 }
@@ -72,6 +104,32 @@ export function getProjectOrderKey(project: Pick<Project, "environmentId" | "cwd
   return derivePhysicalProjectKey(project);
 }
 
+function normalizeManualProjectGroupLabel(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return trimmed.replace(/\s+/g, " ");
+}
+
+export function resolveManualProjectGroupLabel(
+  project: Pick<Project, "environmentId" | "cwd">,
+  settings: Pick<ProjectGroupingSettings, "sidebarProjectManualGroups">,
+): string | null {
+  return normalizeManualProjectGroupLabel(
+    settings.sidebarProjectManualGroups?.[deriveProjectGroupingOverrideKey(project)],
+  );
+}
+
+export function deriveManualProjectGroupKey(label: string): string {
+  return `${MANUAL_PROJECT_GROUP_KEY_PREFIX}${label.toLocaleLowerCase()}`;
+}
+
+export function isManualProjectGroupKey(key: string): boolean {
+  return key.startsWith(MANUAL_PROJECT_GROUP_KEY_PREFIX);
+}
+
 export function resolveProjectGroupingMode(
   project: Pick<Project, "environmentId" | "cwd">,
   settings: ProjectGroupingSettings,
@@ -83,7 +141,7 @@ export function resolveProjectGroupingMode(
 }
 
 function deriveRepositoryScopedKey(
-  project: Pick<Project, "cwd" | "repositoryIdentity">,
+  project: Pick<Project, "cwd" | "environmentId" | "repositoryIdentity">,
   groupingMode: SidebarProjectGroupingMode,
 ): string | null {
   const canonicalKey = project.repositoryIdentity?.canonicalKey;
@@ -93,6 +151,10 @@ function deriveRepositoryScopedKey(
 
   if (groupingMode === "repository") {
     return canonicalKey;
+  }
+
+  if (groupingMode === "parent_directory") {
+    return deriveParentDirectoryGroupingKey(project) ?? canonicalKey;
   }
 
   const relativeProjectPath = deriveRepositoryRelativeProjectPath(project);
@@ -127,6 +189,11 @@ export function deriveLogicalProjectKeyFromSettings(
   project: Pick<Project, "environmentId" | "id" | "cwd" | "repositoryIdentity">,
   settings: ProjectGroupingSettings,
 ): string {
+  const manualGroupLabel = resolveManualProjectGroupLabel(project, settings);
+  if (manualGroupLabel) {
+    return deriveManualProjectGroupKey(manualGroupLabel);
+  }
+
   return deriveLogicalProjectKey(project, {
     groupingMode: resolveProjectGroupingMode(project, settings),
   });
@@ -143,9 +210,19 @@ export function deriveLogicalProjectKeyFromRef(
 }
 
 export function deriveProjectGroupLabel(input: {
-  representative: Pick<Project, "name" | "repositoryIdentity">;
-  members: ReadonlyArray<Pick<Project, "name" | "repositoryIdentity">>;
+  representative: Pick<Project, "name" | "cwd" | "repositoryIdentity">;
+  members: ReadonlyArray<Pick<Project, "name" | "cwd" | "repositoryIdentity">>;
+  groupingMode?: SidebarProjectGroupingMode;
 }): string {
+  if (input.groupingMode === "parent_directory") {
+    const parentDirectoryPaths = uniqueNonEmptyValues(
+      input.members.map((member) => deriveFilesystemParentPath(member)),
+    );
+    if (parentDirectoryPaths.length === 1) {
+      return inferProjectTitleFromPath(parentDirectoryPaths[0]!);
+    }
+  }
+
   const sharedDisplayNames = uniqueNonEmptyValues(
     input.members.map((member) => member.repositoryIdentity?.displayName),
   );

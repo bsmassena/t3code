@@ -24,6 +24,7 @@ export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "update
 
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",
+  "parent_directory",
   "repository_path",
   "separate",
 ]);
@@ -43,6 +44,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
+  ),
+  sidebarProjectManualGroups: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
   ),
   sidebarProjectGroupingOverrides: Schema.Record(
     TrimmedNonEmptyString,

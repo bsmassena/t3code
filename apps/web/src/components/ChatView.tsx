@@ -860,6 +860,7 @@ export default function ChatView(props: ChatViewProps) {
   const savedEnvironmentRuntimeById = useSavedEnvironmentRuntimeStore((s) => s.byId);
   const projectGroupingSettings = useSettings((settings) => ({
     sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
+    sidebarProjectManualGroups: settings.sidebarProjectManualGroups,
     sidebarProjectGroupingOverrides: settings.sidebarProjectGroupingOverrides,
   }));
   const logicalProjectEnvironments = useMemo(() => {

@@ -67,6 +67,23 @@ const currentProjectCwdsByLogicalKey = new Map<string, string[]>();
 const currentLogicalKeyByPhysicalKey = new Map<string, string>();
 let legacyKeysCleanedUp = false;
 
+function replacePersistedProjectOrderCwds(cwds: readonly string[]): void {
+  persistedProjectOrderCwds.length = 0;
+  for (const cwd of cwds) {
+    if (typeof cwd === "string" && cwd.length > 0 && !persistedProjectOrderCwds.includes(cwd)) {
+      persistedProjectOrderCwds.push(cwd);
+    }
+  }
+}
+
+function syncPersistedProjectOrderFromIds(projectIds: readonly string[]): void {
+  const nextProjectOrderCwds = projectIds.flatMap((projectId) => {
+    const cwd = currentProjectCwdById.get(projectId);
+    return cwd ? [cwd] : [];
+  });
+  replacePersistedProjectOrderCwds(nextProjectOrderCwds);
+}
+
 function readPersistedState(): UiState {
   if (typeof window === "undefined") {
     return initialState;
@@ -128,7 +145,6 @@ function sanitizePersistedThreadChangedFilesExpanded(
 export function hydratePersistedProjectState(parsed: PersistedUiState): void {
   persistedCollapsedProjectCwds.clear();
   persistedExpandedProjectCwds.clear();
-  persistedProjectOrderCwds.length = 0;
   persistedProjectStateUsesLegacyShape = !Array.isArray(parsed.collapsedProjectCwds);
   for (const cwd of parsed.collapsedProjectCwds ?? []) {
     if (typeof cwd === "string" && cwd.length > 0) {
@@ -140,11 +156,7 @@ export function hydratePersistedProjectState(parsed: PersistedUiState): void {
       persistedExpandedProjectCwds.add(cwd);
     }
   }
-  for (const cwd of parsed.projectOrderCwds ?? []) {
-    if (typeof cwd === "string" && cwd.length > 0 && !persistedProjectOrderCwds.includes(cwd)) {
-      persistedProjectOrderCwds.push(cwd);
-    }
-  }
+  replacePersistedProjectOrderCwds(parsed.projectOrderCwds ?? []);
 }
 
 export function persistState(state: UiState): void {
@@ -165,6 +177,7 @@ export function persistState(state: UiState): void {
       const cwd = currentProjectCwdById.get(projectId);
       return cwd ? [cwd] : [];
     });
+    replacePersistedProjectOrderCwds(projectOrderCwds);
     const threadChangedFilesExpandedById = Object.fromEntries(
       Object.entries(state.threadChangedFilesExpandedById).flatMap(([threadId, turns]) => {
         const nextTurns = Object.fromEntries(
@@ -232,6 +245,130 @@ function nestedBooleanRecordsEqual(
   return true;
 }
 
+interface MappedProjectOrderEntry {
+  id: string;
+  cwd: string;
+  incomingIndex: number;
+}
+
+export function resolveProjectOrder(input: {
+  currentProjectOrder: readonly string[];
+  mappedProjects: readonly MappedProjectOrderEntry[];
+  previousProjectCwdById: ReadonlyMap<string, string>;
+  preferredProjectOrderCwds: readonly string[];
+}): string[] {
+  const nextProjectIdByCwd = new Map(
+    input.mappedProjects.map((project) => [project.cwd, project.id] as const),
+  );
+  const mappedProjectIds = new Set(input.mappedProjects.map((project) => project.id));
+  const currentOrderedProjectIds: string[] = [];
+  const currentOrderedProjectIdSet = new Set<string>();
+
+  for (const projectId of input.currentProjectOrder) {
+    const matchedProjectId =
+      (mappedProjectIds.has(projectId) ? projectId : undefined) ??
+      (() => {
+        const previousCwd = input.previousProjectCwdById.get(projectId);
+        return previousCwd ? nextProjectIdByCwd.get(previousCwd) : undefined;
+      })();
+    if (!matchedProjectId || currentOrderedProjectIdSet.has(matchedProjectId)) {
+      continue;
+    }
+    currentOrderedProjectIdSet.add(matchedProjectId);
+    currentOrderedProjectIds.push(matchedProjectId);
+  }
+
+  if (input.preferredProjectOrderCwds.length === 0) {
+    if (currentOrderedProjectIds.length === 0) {
+      return input.mappedProjects.map((project) => project.id);
+    }
+
+    const orderedProjectIds = [...currentOrderedProjectIds];
+    const usedProjectIds = new Set(currentOrderedProjectIds);
+    for (const project of input.mappedProjects) {
+      if (usedProjectIds.has(project.id)) {
+        continue;
+      }
+      orderedProjectIds.push(project.id);
+    }
+    return orderedProjectIds;
+  }
+
+  const preferredOrderByCwd = new Map(
+    input.preferredProjectOrderCwds.map((cwd, index) => [cwd, index] as const),
+  );
+  const preferredProjectIds = input.mappedProjects
+    .map((project) => ({
+      id: project.id,
+      incomingIndex: project.incomingIndex,
+      orderIndex:
+        preferredOrderByCwd.get(project.cwd) ??
+        input.preferredProjectOrderCwds.length + project.incomingIndex,
+    }))
+    .toSorted((left, right) => {
+      const byOrder = left.orderIndex - right.orderIndex;
+      if (byOrder !== 0) {
+        return byOrder;
+      }
+      return left.incomingIndex - right.incomingIndex;
+    })
+    .map((project) => project.id);
+
+  if (currentOrderedProjectIds.length === 0) {
+    return preferredProjectIds;
+  }
+
+  const orderedProjectIds = [...currentOrderedProjectIds];
+  const usedProjectIds = new Set(currentOrderedProjectIds);
+  const orderedIndexByProjectId = new Map(
+    orderedProjectIds.map((projectId, index) => [projectId, index] as const),
+  );
+
+  for (let preferredIndex = 0; preferredIndex < preferredProjectIds.length; preferredIndex++) {
+    const projectId = preferredProjectIds[preferredIndex]!;
+    if (usedProjectIds.has(projectId)) {
+      continue;
+    }
+
+    let insertIndex = orderedProjectIds.length;
+    for (let index = preferredIndex - 1; index >= 0; index--) {
+      const predecessorId = preferredProjectIds[index]!;
+      const predecessorOrderedIndex = orderedIndexByProjectId.get(predecessorId);
+      if (predecessorOrderedIndex !== undefined) {
+        insertIndex = predecessorOrderedIndex + 1;
+        break;
+      }
+    }
+
+    if (insertIndex === orderedProjectIds.length) {
+      for (let index = preferredIndex + 1; index < preferredProjectIds.length; index++) {
+        const successorId = preferredProjectIds[index]!;
+        const successorOrderedIndex = orderedIndexByProjectId.get(successorId);
+        if (successorOrderedIndex !== undefined) {
+          insertIndex = successorOrderedIndex;
+          break;
+        }
+      }
+    }
+
+    orderedProjectIds.splice(insertIndex, 0, projectId);
+    usedProjectIds.add(projectId);
+    orderedIndexByProjectId.clear();
+    for (let index = 0; index < orderedProjectIds.length; index++) {
+      orderedIndexByProjectId.set(orderedProjectIds[index]!, index);
+    }
+  }
+
+  for (const project of input.mappedProjects) {
+    if (usedProjectIds.has(project.id)) {
+      continue;
+    }
+    orderedProjectIds.push(project.id);
+  }
+
+  return orderedProjectIds;
+}
+
 export function syncProjects(state: UiState, projects: readonly SyncProjectInput[]): UiState {
   const previousProjectCwdById = new Map(currentProjectCwdById);
   const previousLogicalKeyByPhysicalKey = new Map(currentLogicalKeyByPhysicalKey);
@@ -275,9 +412,6 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
 
   const nextExpandedById: Record<string, boolean> = {};
   const previousExpandedById = state.projectExpandedById;
-  const persistedOrderByCwd = new Map(
-    persistedProjectOrderCwds.map((cwd, index) => [cwd, index] as const),
-  );
   const mappedProjects = projects.map((project, index) => {
     if (!(project.logicalKey in nextExpandedById)) {
       const groupCwds = currentProjectCwdsByLogicalKey.get(project.logicalKey) ?? [project.cwd];
@@ -318,55 +452,12 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
     };
   });
 
-  const nextProjectOrder =
-    state.projectOrder.length > 0
-      ? (() => {
-          const currentProjectIds = new Set(mappedProjects.map((project) => project.id));
-          const nextProjectIdByCwd = new Map(
-            mappedProjects.map((project) => [project.cwd, project.id] as const),
-          );
-          const usedProjectIds = new Set<string>();
-          const orderedProjectIds: string[] = [];
-
-          for (const projectId of state.projectOrder) {
-            const matchedProjectId =
-              (currentProjectIds.has(projectId) ? projectId : undefined) ??
-              (() => {
-                const previousCwd = previousProjectCwdById.get(projectId);
-                return previousCwd ? nextProjectIdByCwd.get(previousCwd) : undefined;
-              })();
-            if (!matchedProjectId || usedProjectIds.has(matchedProjectId)) {
-              continue;
-            }
-            usedProjectIds.add(matchedProjectId);
-            orderedProjectIds.push(matchedProjectId);
-          }
-
-          for (const project of mappedProjects) {
-            if (usedProjectIds.has(project.id)) {
-              continue;
-            }
-            orderedProjectIds.push(project.id);
-          }
-
-          return orderedProjectIds;
-        })()
-      : mappedProjects
-          .map((project) => ({
-            id: project.id,
-            incomingIndex: project.incomingIndex,
-            orderIndex:
-              persistedOrderByCwd.get(project.cwd) ??
-              persistedProjectOrderCwds.length + project.incomingIndex,
-          }))
-          .toSorted((left, right) => {
-            const byOrder = left.orderIndex - right.orderIndex;
-            if (byOrder !== 0) {
-              return byOrder;
-            }
-            return left.incomingIndex - right.incomingIndex;
-          })
-          .map((project) => project.id);
+  const nextProjectOrder = resolveProjectOrder({
+    currentProjectOrder: state.projectOrder,
+    mappedProjects,
+    previousProjectCwdById,
+    preferredProjectOrderCwds: persistedProjectOrderCwds,
+  });
 
   if (
     recordsEqual(state.projectExpandedById, nextExpandedById) &&
@@ -593,6 +684,7 @@ export function reorderProjects(
 
   const insertIndex = originalTargetIndex - Math.max(0, draggedBeforeTarget - 1);
   projectOrder.splice(insertIndex, 0, ...removed);
+  syncPersistedProjectOrderFromIds(projectOrder);
   return {
     ...state,
     projectOrder,

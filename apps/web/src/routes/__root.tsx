@@ -216,6 +216,7 @@ function EventRouter() {
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const projectGroupingSettings = useSettings((settings) => ({
     sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
+    sidebarProjectManualGroups: settings.sidebarProjectManualGroups,
     sidebarProjectGroupingOverrides: settings.sidebarProjectGroupingOverrides,
   }));
   const readPathname = useEffectEvent(() => pathname);

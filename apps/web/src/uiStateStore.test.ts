@@ -9,6 +9,7 @@ import {
   type PersistedUiState,
   persistState,
   reorderProjects,
+  resolveProjectOrder,
   setProjectExpanded,
   setThreadChangedFilesExpanded,
   syncProjects,
@@ -224,6 +225,68 @@ describe("uiStateStore pure functions", () => {
 
     expect(next.projectOrder).toEqual([keyProject2, keyProject1]);
     expect(next.projectExpandedById[keyProject2]).toBe(false);
+  });
+
+  it("resolveProjectOrder keeps the persisted manual order as projects hydrate incrementally", () => {
+    const projectA = ProjectId.make("project-a");
+    const projectB = ProjectId.make("project-b");
+    const projectC = ProjectId.make("project-c");
+    const preferredProjectOrderCwds = ["/tmp/project-a", "/tmp/project-c", "/tmp/project-b"];
+
+    const partiallyHydratedOrder = resolveProjectOrder({
+      currentProjectOrder: [],
+      mappedProjects: [
+        { id: projectA, cwd: "/tmp/project-a", incomingIndex: 0 },
+        { id: projectB, cwd: "/tmp/project-b", incomingIndex: 1 },
+      ],
+      previousProjectCwdById: new Map(),
+      preferredProjectOrderCwds,
+    });
+
+    expect(partiallyHydratedOrder).toEqual([projectA, projectB]);
+
+    const fullyHydratedOrder = resolveProjectOrder({
+      currentProjectOrder: partiallyHydratedOrder,
+      mappedProjects: [
+        { id: projectA, cwd: "/tmp/project-a", incomingIndex: 0 },
+        { id: projectB, cwd: "/tmp/project-b", incomingIndex: 1 },
+        { id: projectC, cwd: "/tmp/project-c", incomingIndex: 2 },
+      ],
+      previousProjectCwdById: new Map([
+        [projectA, "/tmp/project-a"],
+        [projectB, "/tmp/project-b"],
+      ]),
+      preferredProjectOrderCwds,
+    });
+
+    expect(fullyHydratedOrder).toEqual([projectA, projectC, projectB]);
+  });
+
+  it("resolveProjectOrder inserts late projects before already rendered successors", () => {
+    const projectA = ProjectId.make("project-a");
+    const projectB = ProjectId.make("project-b");
+    const preferredProjectOrderCwds = ["/tmp/project-a", "/tmp/project-b"];
+
+    const partiallyHydratedOrder = resolveProjectOrder({
+      currentProjectOrder: [],
+      mappedProjects: [{ id: projectB, cwd: "/tmp/project-b", incomingIndex: 0 }],
+      previousProjectCwdById: new Map(),
+      preferredProjectOrderCwds,
+    });
+
+    expect(partiallyHydratedOrder).toEqual([projectB]);
+
+    const fullyHydratedOrder = resolveProjectOrder({
+      currentProjectOrder: partiallyHydratedOrder,
+      mappedProjects: [
+        { id: projectA, cwd: "/tmp/project-a", incomingIndex: 0 },
+        { id: projectB, cwd: "/tmp/project-b", incomingIndex: 1 },
+      ],
+      previousProjectCwdById: new Map([[projectB, "/tmp/project-b"]]),
+      preferredProjectOrderCwds,
+    });
+
+    expect(fullyHydratedOrder).toEqual([projectA, projectB]);
   });
 
   it("syncProjects returns a new state when only project cwd changes", () => {

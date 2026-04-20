@@ -4,7 +4,10 @@ import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
   deriveProjectGroupLabel,
+  isManualProjectGroupKey,
   type ProjectGroupingSettings,
+  resolveManualProjectGroupLabel,
+  resolveProjectGroupingMode,
 } from "./logicalProject";
 import type { Project } from "./types";
 
@@ -23,6 +26,55 @@ export interface SidebarProjectSnapshot extends Project {
   memberProjects: readonly SidebarProjectGroupMember[];
   memberProjectRefs: readonly ScopedProjectRef[];
   remoteEnvironmentLabels: readonly string[];
+}
+
+function resolveManualGroupDisplayName(
+  members: ReadonlyArray<SidebarProjectGroupMember>,
+  settings: ProjectGroupingSettings,
+): string | null {
+  for (const member of members) {
+    const label = resolveManualProjectGroupLabel(member, settings);
+    if (label) {
+      return label;
+    }
+  }
+
+  return null;
+}
+
+function resolveSidebarProjectDisplayName(input: {
+  logicalKey: string;
+  representative: SidebarProjectGroupMember;
+  members: ReadonlyArray<SidebarProjectGroupMember>;
+  settings: ProjectGroupingSettings;
+}): string {
+  if (isManualProjectGroupKey(input.logicalKey)) {
+    return (
+      resolveManualGroupDisplayName(input.members, input.settings) ?? input.representative.name
+    );
+  }
+
+  if (input.members.length === 1) {
+    return input.representative.name;
+  }
+
+  return deriveProjectGroupLabel({
+    representative: input.representative,
+    members: input.members,
+    groupingMode: resolveProjectGroupingMode(input.representative, input.settings),
+  });
+}
+
+function resolveEnvironmentPresence(hasLocal: boolean, hasRemote: boolean): EnvironmentPresence {
+  if (hasLocal && hasRemote) {
+    return "mixed";
+  }
+
+  if (hasRemote) {
+    return "remote-only";
+  }
+
+  return "local-only";
 }
 
 export function buildPhysicalToLogicalProjectKeyMap(input: {
@@ -98,16 +150,14 @@ export function buildSidebarProjectSnapshots(input: {
     result.push({
       ...representative,
       projectKey: logicalKey,
-      displayName:
-        members.length > 1
-          ? deriveProjectGroupLabel({
-              representative,
-              members,
-            })
-          : representative.name,
+      displayName: resolveSidebarProjectDisplayName({
+        logicalKey,
+        representative,
+        members,
+        settings: input.settings,
+      }),
       groupedProjectCount: members.length,
-      environmentPresence:
-        hasLocal && hasRemote ? "mixed" : hasRemote ? "remote-only" : "local-only",
+      environmentPresence: resolveEnvironmentPresence(hasLocal, hasRemote),
       memberProjects: members,
       memberProjectRefs: members.map((member) => scopeProjectRef(member.environmentId, member.id)),
       remoteEnvironmentLabels,
