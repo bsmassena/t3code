@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_TERMINAL_ID,
+  TERMINAL_MAX_COLS,
+  TERMINAL_MAX_ROWS,
   TerminalClearInput,
   TerminalCloseInput,
   TerminalEvent,
@@ -32,7 +34,7 @@ describe("TerminalOpenInput", () => {
       decodes(TerminalOpenInput, {
         threadId: "thread-1",
         cwd: "/tmp/project",
-        cols: 120,
+        cols: 415,
         rows: 40,
       }),
     ).toBe(true);
@@ -45,6 +47,15 @@ describe("TerminalOpenInput", () => {
         cwd: "/tmp/project",
         cols: 10,
         rows: 2,
+      }),
+    ).toBe(false);
+
+    expect(
+      decodes(TerminalOpenInput, {
+        threadId: "thread-1",
+        cwd: "/tmp/project",
+        cols: TERMINAL_MAX_COLS + 1,
+        rows: TERMINAL_MAX_ROWS + 1,
       }),
     ).toBe(false);
   });

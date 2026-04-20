@@ -1,6 +1,10 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Plus, SquareSplitHorizontal, TerminalSquare, Trash2, XIcon } from "lucide-react";
 import {
+  TERMINAL_MAX_COLS,
+  TERMINAL_MAX_ROWS,
+  TERMINAL_MIN_COLS,
+  TERMINAL_MIN_ROWS,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type TerminalEvent,
@@ -52,6 +56,36 @@ import { selectTerminalEventEntries, useTerminalStateStore } from "../terminalSt
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
+
+function describeUnknownError(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+  if (error && typeof error === "object" && "message" in error) {
+    const message = error.message;
+    if (typeof message === "string" && message.trim().length > 0) {
+      return message;
+    }
+  }
+  return fallback;
+}
+
+function clampTerminalDimension(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.min(Math.max(Math.round(value), min), max);
+}
+
+function readTerminalSize(terminal: Terminal): { cols: number; rows: number } {
+  return {
+    cols: clampTerminalDimension(terminal.cols, TERMINAL_MIN_COLS, TERMINAL_MAX_COLS),
+    rows: clampTerminalDimension(terminal.rows, TERMINAL_MIN_ROWS, TERMINAL_MAX_ROWS),
+  };
+}
 
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
@@ -411,7 +445,7 @@ export function TerminalViewport({
       try {
         await api.terminal.write({ threadId, terminalId, data });
       } catch (error) {
-        writeSystemMessage(activeTerminal, error instanceof Error ? error.message : fallbackError);
+        writeSystemMessage(activeTerminal, describeUnknownError(error, fallbackError));
       }
     };
 
@@ -494,7 +528,7 @@ export function TerminalViewport({
                 void localApi.shell.openExternal(match.text).catch((error: unknown) => {
                   writeSystemMessage(
                     latestTerminal,
-                    error instanceof Error ? error.message : "Unable to open link",
+                    describeUnknownError(error, "Unable to open link"),
                   );
                 });
                 return;
@@ -504,7 +538,7 @@ export function TerminalViewport({
               void openInPreferredEditor(localApi, target).catch((error) => {
                 writeSystemMessage(
                   latestTerminal,
-                  error instanceof Error ? error.message : "Unable to open path",
+                  describeUnknownError(error, "Unable to open path"),
                 );
               });
             },
@@ -517,10 +551,7 @@ export function TerminalViewport({
       void api.terminal
         .write({ threadId, terminalId, data })
         .catch((err) =>
-          writeSystemMessage(
-            terminal,
-            err instanceof Error ? err.message : "Terminal write failed",
-          ),
+          writeSystemMessage(terminal, describeUnknownError(err, "Terminal write failed")),
         );
     });
 
@@ -667,16 +698,12 @@ export function TerminalViewport({
     const openTerminal = async () => {
       try {
         const activeTerminal = terminalRef.current;
-        const activeFitAddon = fitAddonRef.current;
-        if (!activeTerminal || !activeFitAddon) return;
-        activeFitAddon.fit();
+        if (!activeTerminal) return;
         const snapshot = await api.terminal.open({
           threadId,
           terminalId,
           cwd,
           ...(worktreePath !== undefined ? { worktreePath } : {}),
-          cols: activeTerminal.cols,
-          rows: activeTerminal.rows,
           ...(runtimeEnv ? { env: runtimeEnv } : {}),
         });
         if (disposed) return;
@@ -702,10 +729,7 @@ export function TerminalViewport({
         }
       } catch (err) {
         if (disposed) return;
-        writeSystemMessage(
-          terminal,
-          err instanceof Error ? err.message : "Failed to open terminal",
-        );
+        writeSystemMessage(terminal, describeUnknownError(err, "Failed to open terminal"));
       }
     };
 
@@ -716,6 +740,7 @@ export function TerminalViewport({
       const wasAtBottom =
         activeTerminal.buffer.active.viewportY >= activeTerminal.buffer.active.baseY;
       activeFitAddon.fit();
+      const size = readTerminalSize(activeTerminal);
       if (wasAtBottom) {
         activeTerminal.scrollToBottom();
       }
@@ -723,8 +748,8 @@ export function TerminalViewport({
         .resize({
           threadId,
           terminalId,
-          cols: activeTerminal.cols,
-          rows: activeTerminal.rows,
+          cols: size.cols,
+          rows: size.rows,
         })
         .catch(() => undefined);
     }, 30);
@@ -774,6 +799,7 @@ export function TerminalViewport({
     const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
     const frame = window.requestAnimationFrame(() => {
       fitAddon.fit();
+      const size = readTerminalSize(terminal);
       if (wasAtBottom) {
         terminal.scrollToBottom();
       }
@@ -781,8 +807,8 @@ export function TerminalViewport({
         .resize({
           threadId,
           terminalId,
-          cols: terminal.cols,
-          rows: terminal.rows,
+          cols: size.cols,
+          rows: size.rows,
         })
         .catch(() => undefined);
     });

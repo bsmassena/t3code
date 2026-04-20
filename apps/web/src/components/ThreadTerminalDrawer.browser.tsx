@@ -1,7 +1,7 @@
 import "../index.css";
 
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import { ThreadId } from "@t3tools/contracts";
+import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, ThreadId } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -10,6 +10,7 @@ const {
   terminalDisposeSpy,
   fitAddonFitSpy,
   fitAddonLoadSpy,
+  terminalSizeState,
   environmentApiById,
   readEnvironmentApiMock,
   readLocalApiMock,
@@ -18,6 +19,7 @@ const {
   terminalDisposeSpy: vi.fn(),
   fitAddonFitSpy: vi.fn(),
   fitAddonLoadSpy: vi.fn(),
+  terminalSizeState: { cols: 80, rows: 24 },
   environmentApiById: new Map<string, { terminal: { open: ReturnType<typeof vi.fn> } }>(),
   readEnvironmentApiMock: vi.fn((environmentId: string) => environmentApiById.get(environmentId)),
   readLocalApiMock: vi.fn<
@@ -41,8 +43,8 @@ vi.mock("@xterm/addon-fit", () => ({
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: class MockTerminal {
-    cols = 80;
-    rows = 24;
+    cols = terminalSizeState.cols;
+    rows = terminalSizeState.rows;
     options: { theme?: unknown } = {};
     buffer = {
       active: {
@@ -217,6 +219,8 @@ describe("TerminalViewport", () => {
     terminalDisposeSpy.mockClear();
     fitAddonFitSpy.mockClear();
     fitAddonLoadSpy.mockClear();
+    terminalSizeState.cols = 80;
+    terminalSizeState.rows = 24;
   });
 
   it("does not create a terminal when APIs are unavailable", async () => {
@@ -313,6 +317,46 @@ describe("TerminalViewport", () => {
           }),
         }),
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens without initial dimensions and clamps oversized resize RPC calls", async () => {
+    terminalSizeState.cols = TERMINAL_MAX_COLS + 200;
+    terminalSizeState.rows = TERMINAL_MAX_ROWS + 50;
+    const environment = createEnvironmentApi();
+    environmentApiById.set("environment-a", environment);
+
+    const mounted = await mountTerminalViewport({
+      threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(environment.terminal.open).toHaveBeenCalledWith(
+          expect.objectContaining({
+            threadId: THREAD_ID,
+            terminalId: "default",
+            cwd: "/repo/project",
+          }),
+        );
+      });
+      expect(environment.terminal.open).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          cols: expect.any(Number),
+          rows: expect.any(Number),
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(environment.terminal.resize).toHaveBeenCalledWith({
+          threadId: THREAD_ID,
+          terminalId: "default",
+          cols: TERMINAL_MAX_COLS,
+          rows: TERMINAL_MAX_ROWS,
+        });
+      });
     } finally {
       await mounted.cleanup();
     }
