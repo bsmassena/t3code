@@ -3,6 +3,8 @@ import {
   ArrowUpDownIcon,
   ChevronRightIcon,
   CloudIcon,
+  EyeIcon,
+  EyeOffIcon,
   GitPullRequestIcon,
   PlusIcon,
   SearchIcon,
@@ -121,7 +123,9 @@ import {
 import { Input } from "./ui/input";
 import {
   Menu,
+  MenuCheckboxItem,
   MenuGroup,
+  MenuItem,
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
@@ -2392,6 +2396,79 @@ function ProjectSortMenu({
   );
 }
 
+function ProjectVisibilityMenu({
+  projects,
+  hiddenProjectKeys,
+  onProjectHiddenChange,
+  onShowAllProjects,
+}: {
+  projects: readonly SidebarProjectSnapshot[];
+  hiddenProjectKeys: ReadonlySet<string>;
+  onProjectHiddenChange: (projectKey: string, hidden: boolean) => void;
+  onShowAllProjects: () => void;
+}) {
+  const hiddenProjectCount = hiddenProjectKeys.size;
+  const triggerIcon = hiddenProjectCount > 0 ? EyeOffIcon : EyeIcon;
+
+  return (
+    <Menu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <MenuTrigger
+              className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              aria-label="Show or hide projects"
+              data-testid="sidebar-project-visibility-trigger"
+              disabled={projects.length === 0}
+            />
+          }
+        >
+          {React.createElement(triggerIcon, { className: "size-3.5" })}
+        </TooltipTrigger>
+        <TooltipPopup side="right">Show or hide projects</TooltipPopup>
+      </Tooltip>
+      <MenuPopup align="end" side="bottom" className="min-w-56">
+        <MenuGroup>
+          <div className="px-2 py-1 font-medium text-muted-foreground sm:text-xs">Projects</div>
+          {projects.length > 0 ? (
+            projects.map((project) => (
+              <MenuCheckboxItem
+                key={project.projectKey}
+                checked={!hiddenProjectKeys.has(project.projectKey)}
+                onCheckedChange={(checked) => {
+                  onProjectHiddenChange(project.projectKey, checked !== true);
+                }}
+                className="min-h-7 py-1 sm:text-xs"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate">{project.displayName}</span>
+                  {project.groupedProjectCount > 1 ? (
+                    <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                      {project.groupedProjectCount} projects
+                    </span>
+                  ) : null}
+                </span>
+              </MenuCheckboxItem>
+            ))
+          ) : (
+            <MenuItem disabled className="min-h-7 py-1 sm:text-xs">
+              No projects
+            </MenuItem>
+          )}
+        </MenuGroup>
+        {hiddenProjectCount > 0 ? (
+          <>
+            <MenuSeparator />
+            <MenuItem onClick={onShowAllProjects} className="min-h-7 py-1 sm:text-xs">
+              Show all
+            </MenuItem>
+          </>
+        ) : null}
+      </MenuPopup>
+    </Menu>
+  );
+}
+
 function SortableProjectItem({
   projectId,
   disabled = false,
@@ -2505,7 +2582,11 @@ interface SidebarProjectsContentProps {
   projectSortOrder: SidebarProjectSortOrder;
   threadSortOrder: SidebarThreadSortOrder;
   projectGroupingMode: SidebarProjectGroupingMode;
+  projectVisibilityItems: readonly SidebarProjectSnapshot[];
+  hiddenProjectKeys: ReadonlySet<string>;
   updateSettings: ReturnType<typeof useUpdateSettings>["updateSettings"];
+  setSidebarProjectHidden: (projectKey: string, hidden: boolean) => void;
+  showAllSidebarProjects: () => void;
   openAddProject: () => void;
   isManualProjectSorting: boolean;
   projectDnDSensors: ReturnType<typeof useSensors>;
@@ -2545,7 +2626,11 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     projectSortOrder,
     threadSortOrder,
     projectGroupingMode,
+    projectVisibilityItems,
+    hiddenProjectKeys,
     updateSettings,
+    setSidebarProjectHidden,
+    showAllSidebarProjects,
     openAddProject,
     isManualProjectSorting,
     projectDnDSensors,
@@ -2590,6 +2675,12 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
       updateSettings({ sidebarProjectGroupingMode: groupingMode });
     },
     [updateSettings],
+  );
+  const handleProjectHiddenChange = useCallback(
+    (projectKey: string, hidden: boolean) => {
+      setSidebarProjectHidden(projectKey, hidden);
+    },
+    [setSidebarProjectHidden],
   );
 
   return (
@@ -2646,6 +2737,12 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
             Projects
           </span>
           <div className="flex items-center gap-1">
+            <ProjectVisibilityMenu
+              projects={projectVisibilityItems}
+              hiddenProjectKeys={hiddenProjectKeys}
+              onProjectHiddenChange={handleProjectHiddenChange}
+              onShowAllProjects={showAllSidebarProjects}
+            />
             <ProjectSortMenu
               projectSortOrder={projectSortOrder}
               threadSortOrder={threadSortOrder}
@@ -2751,6 +2848,11 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
             No projects yet
           </div>
         )}
+        {projectsLength > 0 && projectVisibilityItems.length > 0 && sortedProjects.length === 0 ? (
+          <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
+            All projects hidden
+          </div>
+        ) : null}
       </SidebarGroup>
     </SidebarContent>
   );
@@ -2760,8 +2862,12 @@ export default function Sidebar() {
   const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
   const sidebarThreads = useStore(useShallow(selectSidebarThreadsAcrossEnvironments));
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
+  const hiddenSidebarProjectKeys = useUiStateStore((store) => store.hiddenSidebarProjectKeys);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
+  const syncHiddenSidebarProjects = useUiStateStore((store) => store.syncHiddenSidebarProjects);
+  const setSidebarProjectHidden = useUiStateStore((store) => store.setSidebarProjectHidden);
+  const showAllSidebarProjects = useUiStateStore((store) => store.showAllSidebarProjects);
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const isOnSettings = pathname.startsWith("/settings");
@@ -3008,7 +3114,7 @@ export default function Sidebar() {
     () => sidebarThreads.filter((thread) => thread.archivedAt === null),
     [sidebarThreads],
   );
-  const sortedProjects = useMemo(() => {
+  const allSortedProjects = useMemo(() => {
     const sortableProjects = sidebarProjects.map((project) => ({
       ...project,
       id: project.projectKey,
@@ -3039,6 +3145,18 @@ export default function Sidebar() {
     sidebarProjects,
     visibleThreads,
   ]);
+  useEffect(() => {
+    syncHiddenSidebarProjects(allSortedProjects.map((project) => project.projectKey));
+  }, [allSortedProjects, syncHiddenSidebarProjects]);
+  const hiddenSidebarProjectKeySet = useMemo(
+    () => new Set(hiddenSidebarProjectKeys),
+    [hiddenSidebarProjectKeys],
+  );
+  const sortedProjects = useMemo(
+    () =>
+      allSortedProjects.filter((project) => !hiddenSidebarProjectKeySet.has(project.projectKey)),
+    [allSortedProjects, hiddenSidebarProjectKeySet],
+  );
   const isManualProjectSorting = sidebarProjectSortOrder === "manual";
   const visibleSidebarThreadKeys = useMemo(
     () =>
@@ -3398,7 +3516,11 @@ export default function Sidebar() {
             projectSortOrder={sidebarProjectSortOrder}
             threadSortOrder={sidebarThreadSortOrder}
             projectGroupingMode={sidebarProjectGroupingMode}
+            projectVisibilityItems={allSortedProjects}
+            hiddenProjectKeys={hiddenSidebarProjectKeySet}
             updateSettings={updateSettings}
+            setSidebarProjectHidden={setSidebarProjectHidden}
+            showAllSidebarProjects={showAllSidebarProjects}
             openAddProject={openAddProjectCommandPalette}
             isManualProjectSorting={isManualProjectSorting}
             projectDnDSensors={projectDnDSensors}

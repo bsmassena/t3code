@@ -11,7 +11,10 @@ import {
   reorderProjects,
   resolveProjectOrder,
   setProjectExpanded,
+  setSidebarProjectHidden,
   setThreadChangedFilesExpanded,
+  showAllSidebarProjects,
+  syncHiddenSidebarProjects,
   syncProjects,
   syncThreads,
   type UiState,
@@ -21,6 +24,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    hiddenSidebarProjectKeys: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     ...overrides,
@@ -406,6 +410,34 @@ describe("uiStateStore pure functions", () => {
     expect(next.threadLastVisitedAtById).toEqual({
       [thread1]: "2026-02-25T12:35:00.000Z",
     });
+  });
+
+  it("setSidebarProjectHidden tracks hidden logical sidebar projects", () => {
+    const initialState = makeUiState();
+
+    const next = setSidebarProjectHidden(initialState, "logical:project-a", true);
+
+    expect(next.hiddenSidebarProjectKeys).toEqual(["logical:project-a"]);
+  });
+
+  it("showAllSidebarProjects clears hidden logical sidebar projects", () => {
+    const initialState = makeUiState({
+      hiddenSidebarProjectKeys: ["logical:project-a", "logical:group-b"],
+    });
+
+    const next = showAllSidebarProjects(initialState);
+
+    expect(next.hiddenSidebarProjectKeys).toEqual([]);
+  });
+
+  it("syncHiddenSidebarProjects prunes hidden keys that are no longer rendered", () => {
+    const initialState = makeUiState({
+      hiddenSidebarProjectKeys: ["logical:project-a", "logical:group-b"],
+    });
+
+    const next = syncHiddenSidebarProjects(initialState, ["logical:group-b", "logical:project-c"]);
+
+    expect(next.hiddenSidebarProjectKeys).toEqual(["logical:group-b"]);
   });
 
   it("setProjectExpanded updates expansion without touching order", () => {

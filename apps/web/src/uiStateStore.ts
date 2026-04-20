@@ -19,12 +19,14 @@ export interface PersistedUiState {
   collapsedProjectCwds?: string[];
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
+  hiddenSidebarProjectKeys?: string[];
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
 }
 
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
+  hiddenSidebarProjectKeys: string[];
 }
 
 export interface UiThreadState {
@@ -50,6 +52,7 @@ export interface SyncThreadInput {
 const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
+  hiddenSidebarProjectKeys: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
 };
@@ -105,6 +108,9 @@ function readPersistedState(): UiState {
     hydratePersistedProjectState(parsed);
     return {
       ...initialState,
+      hiddenSidebarProjectKeys: sanitizePersistedHiddenSidebarProjectKeys(
+        parsed.hiddenSidebarProjectKeys,
+      ),
       threadChangedFilesExpandedById: sanitizePersistedThreadChangedFilesExpanded(
         parsed.threadChangedFilesExpandedById,
       ),
@@ -140,6 +146,23 @@ function sanitizePersistedThreadChangedFilesExpanded(
   }
 
   return nextState;
+}
+
+function sanitizePersistedHiddenSidebarProjectKeys(
+  value: PersistedUiState["hiddenSidebarProjectKeys"],
+): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const nextKeys: string[] = [];
+  for (const key of value) {
+    if (typeof key !== "string" || key.length === 0 || nextKeys.includes(key)) {
+      continue;
+    }
+    nextKeys.push(key);
+  }
+  return nextKeys;
 }
 
 export function hydratePersistedProjectState(parsed: PersistedUiState): void {
@@ -192,6 +215,7 @@ export function persistState(state: UiState): void {
         collapsedProjectCwds,
         expandedProjectCwds,
         projectOrderCwds,
+        hiddenSidebarProjectKeys: state.hiddenSidebarProjectKeys,
         threadChangedFilesExpandedById,
       } satisfies PersistedUiState),
     );
@@ -474,6 +498,28 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
   };
 }
 
+export function syncHiddenSidebarProjects(
+  state: UiState,
+  visibleProjectKeys: readonly string[],
+): UiState {
+  if (state.hiddenSidebarProjectKeys.length === 0) {
+    return state;
+  }
+
+  const visibleProjectKeySet = new Set(visibleProjectKeys);
+  const nextHiddenProjectKeys = state.hiddenSidebarProjectKeys.filter((projectKey) =>
+    visibleProjectKeySet.has(projectKey),
+  );
+  if (projectOrdersEqual(state.hiddenSidebarProjectKeys, nextHiddenProjectKeys)) {
+    return state;
+  }
+
+  return {
+    ...state,
+    hiddenSidebarProjectKeys: nextHiddenProjectKeys,
+  };
+}
+
 export function syncThreads(state: UiState, threads: readonly SyncThreadInput[]): UiState {
   const retainedThreadIds = new Set(threads.map((thread) => thread.key));
   const nextThreadLastVisitedAtById = Object.fromEntries(
@@ -647,6 +693,35 @@ export function setProjectExpanded(state: UiState, projectId: string, expanded: 
   };
 }
 
+export function setSidebarProjectHidden(
+  state: UiState,
+  projectKey: string,
+  hidden: boolean,
+): UiState {
+  const currentlyHidden = state.hiddenSidebarProjectKeys.includes(projectKey);
+  if (currentlyHidden === hidden) {
+    return state;
+  }
+
+  return {
+    ...state,
+    hiddenSidebarProjectKeys: hidden
+      ? [...state.hiddenSidebarProjectKeys, projectKey]
+      : state.hiddenSidebarProjectKeys.filter((key) => key !== projectKey),
+  };
+}
+
+export function showAllSidebarProjects(state: UiState): UiState {
+  if (state.hiddenSidebarProjectKeys.length === 0) {
+    return state;
+  }
+
+  return {
+    ...state,
+    hiddenSidebarProjectKeys: [],
+  };
+}
+
 export function reorderProjects(
   state: UiState,
   draggedProjectIds: readonly string[],
@@ -693,6 +768,7 @@ export function reorderProjects(
 
 interface UiStateStore extends UiState {
   syncProjects: (projects: readonly SyncProjectInput[]) => void;
+  syncHiddenSidebarProjects: (visibleProjectKeys: readonly string[]) => void;
   syncThreads: (threads: readonly SyncThreadInput[]) => void;
   markThreadVisited: (threadId: string, visitedAt?: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
@@ -700,6 +776,8 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
+  setSidebarProjectHidden: (projectKey: string, hidden: boolean) => void;
+  showAllSidebarProjects: () => void;
   reorderProjects: (
     draggedProjectIds: readonly string[],
     targetProjectIds: readonly string[],
@@ -709,6 +787,8 @@ interface UiStateStore extends UiState {
 export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedState(),
   syncProjects: (projects) => set((state) => syncProjects(state, projects)),
+  syncHiddenSidebarProjects: (visibleProjectKeys) =>
+    set((state) => syncHiddenSidebarProjects(state, visibleProjectKeys)),
   syncThreads: (threads) => set((state) => syncThreads(state, threads)),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
@@ -720,6 +800,9 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),
+  setSidebarProjectHidden: (projectKey, hidden) =>
+    set((state) => setSidebarProjectHidden(state, projectKey, hidden)),
+  showAllSidebarProjects: () => set((state) => showAllSidebarProjects(state)),
   reorderProjects: (draggedProjectIds, targetProjectIds) =>
     set((state) => reorderProjects(state, draggedProjectIds, targetProjectIds)),
 }));
