@@ -358,9 +358,12 @@ export default function GitActionsControl({
     !activeServerThread &&
     activeDraftThread?.envMode === "worktree" &&
     activeDraftThread.worktreePath === null;
+  const liveBranchSyncCwd =
+    activeServerThread?.worktreePath ?? activeDraftThread?.worktreePath ?? gitCwd;
+  const isLiveBranchSyncTargetCurrent = liveBranchSyncCwd === gitCwd;
 
   useEffect(() => {
-    if (isGitActionRunning || isSelectingWorktreeBase) {
+    if (isGitActionRunning || isSelectingWorktreeBase || !isLiveBranchSyncTargetCurrent) {
       return;
     }
 
@@ -378,6 +381,7 @@ export default function GitActionsControl({
     activeDraftThread?.branch,
     gitStatusForActions,
     isGitActionRunning,
+    isLiveBranchSyncTargetCurrent,
     isSelectingWorktreeBase,
     persistThreadBranchSync,
   ]);

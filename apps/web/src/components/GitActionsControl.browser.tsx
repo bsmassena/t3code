@@ -9,6 +9,8 @@ const ENVIRONMENT_A = "environment-local" as never;
 const ENVIRONMENT_B = "environment-remote" as never;
 const GIT_CWD = "/repo/project";
 const BRANCH_NAME = "feature/toast-scope";
+const ROOT_BRANCH_NAME = "main";
+const WORKTREE_PATH = "/repo/.t3/worktrees/bootstrap";
 
 function createDeferredPromise<T>() {
   let resolve!: (value: T) => void;
@@ -25,6 +27,8 @@ function createDeferredPromise<T>() {
 const {
   activeRunStackedActionDeferredRef,
   activeDraftThreadRef,
+  activeServerThreadRef,
+  gitStatusRef,
   hasServerThreadRef,
   invalidateGitQueriesSpy,
   refreshGitStatusSpy,
@@ -38,6 +42,28 @@ const {
 } = vi.hoisted(() => ({
   activeRunStackedActionDeferredRef: { current: createDeferredPromise<never>() },
   activeDraftThreadRef: { current: null as unknown },
+  activeServerThreadRef: {
+    current: {
+      id: "thread-shared" as unknown,
+      branch: "feature/toast-scope" as string | null,
+      worktreePath: null as string | null,
+    } as {
+      id: unknown;
+      branch: string | null;
+      worktreePath: string | null;
+    },
+  },
+  gitStatusRef: {
+    current: {
+      branch: "feature/toast-scope",
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      hasUpstream: true,
+      aheadCount: 1,
+      behindCount: 0,
+      pr: null,
+    },
+  },
   hasServerThreadRef: { current: true },
   invalidateGitQueriesSpy: vi.fn(() => Promise.resolve()),
   refreshGitStatusSpy: vi.fn(() => Promise.resolve(null)),
@@ -112,15 +138,7 @@ vi.mock("~/lib/gitStatusState", () => ({
   refreshGitStatus: refreshGitStatusSpy,
   resetGitStatusStateForTests: () => undefined,
   useGitStatus: vi.fn(() => ({
-    data: {
-      branch: BRANCH_NAME,
-      hasWorkingTreeChanges: false,
-      workingTree: { files: [], insertions: 0, deletions: 0 },
-      hasUpstream: true,
-      aheadCount: 1,
-      behindCount: 0,
-      pr: null,
-    },
+    data: gitStatusRef.current,
     error: null,
     isPending: false,
   })),
@@ -197,11 +215,7 @@ vi.mock("~/store", () => ({
         [ENVIRONMENT_A]: {
           threadShellById: hasServerThreadRef.current
             ? {
-                [SHARED_THREAD_ID]: {
-                  id: SHARED_THREAD_ID,
-                  branch: BRANCH_NAME,
-                  worktreePath: null,
-                },
+                [SHARED_THREAD_ID]: activeServerThreadRef.current,
               }
             : {},
           threadSessionById: {},
@@ -218,11 +232,7 @@ vi.mock("~/store", () => ({
         [ENVIRONMENT_B]: {
           threadShellById: hasServerThreadRef.current
             ? {
-                [SHARED_THREAD_ID]: {
-                  id: SHARED_THREAD_ID,
-                  branch: BRANCH_NAME,
-                  worktreePath: null,
-                },
+                [SHARED_THREAD_ID]: activeServerThreadRef.current,
               }
             : {},
           threadSessionById: {},
@@ -276,6 +286,20 @@ describe("GitActionsControl thread-scoped progress toast", () => {
     vi.clearAllMocks();
     activeRunStackedActionDeferredRef.current = createDeferredPromise<never>();
     activeDraftThreadRef.current = null;
+    activeServerThreadRef.current = {
+      id: SHARED_THREAD_ID,
+      branch: BRANCH_NAME,
+      worktreePath: null,
+    };
+    gitStatusRef.current = {
+      branch: BRANCH_NAME,
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      hasUpstream: true,
+      aheadCount: 1,
+      behindCount: 0,
+      pr: null,
+    };
     hasServerThreadRef.current = true;
     document.body.innerHTML = "";
   });
@@ -455,6 +479,45 @@ describe("GitActionsControl thread-scoped progress toast", () => {
 
       expect(setDraftThreadContextSpy).not.toHaveBeenCalled();
       expect(setThreadBranchSpy).not.toHaveBeenCalled();
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("does not sync a stale parent git cwd over a newly attached worktree", async () => {
+    activeServerThreadRef.current = {
+      id: SHARED_THREAD_ID,
+      branch: "t3code/b38f2993",
+      worktreePath: WORKTREE_PATH,
+    };
+    gitStatusRef.current = {
+      branch: ROOT_BRANCH_NAME,
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      hasUpstream: true,
+      aheadCount: 0,
+      behindCount: 0,
+      pr: null,
+    };
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <GitActionsControl
+        gitCwd={GIT_CWD}
+        activeThreadRef={scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID)}
+      />,
+      {
+        container: host,
+      },
+    );
+
+    try {
+      await Promise.resolve();
+
+      expect(setThreadBranchSpy).not.toHaveBeenCalled();
+      expect(setDraftThreadContextSpy).not.toHaveBeenCalled();
     } finally {
       await screen.unmount();
       host.remove();
