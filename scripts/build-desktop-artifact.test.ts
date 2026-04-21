@@ -3,6 +3,7 @@ import { assert, it } from "@effect/vitest";
 import { ConfigProvider, Effect, Option } from "effect";
 
 import {
+  createBuildConfig,
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
   resolveDesktopProductName,
@@ -97,5 +98,24 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(resolved.verbose, false);
       assert.equal(resolved.mockUpdates, false);
     }),
+  );
+
+  it.effect(
+    "keeps Windows resource editing enabled for unsigned builds so icons are embedded",
+    () =>
+      Effect.gen(function* () {
+        const buildConfig = yield* createBuildConfig(
+          "win",
+          "nsis",
+          "0.0.17",
+          false,
+          false,
+          undefined,
+        );
+        const winConfig = buildConfig.win as Record<string, unknown>;
+
+        assert.equal(winConfig.icon, "icon.ico");
+        assert.equal("signAndEditExecutable" in winConfig, false);
+      }),
   );
 });
