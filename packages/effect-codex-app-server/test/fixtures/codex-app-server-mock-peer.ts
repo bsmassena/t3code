@@ -1,6 +1,7 @@
 let nextServerRequestId = 10_000;
 let pendingSkillsListRequestId: number | string | null = null;
 let pendingUserInputRequestId: number | null = null;
+const mockPlanType = process.env.CODEX_APP_SERVER_MOCK_PLAN_TYPE ?? "plus";
 
 const writeMessage = (message: unknown) => {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -59,7 +60,7 @@ const handleMethod = (message: Record<string, unknown>) => {
         account: {
           type: "chatgpt",
           email: "mock@example.com",
-          planType: "plus",
+          planType: mockPlanType,
         },
         requiresOpenaiAuth: false,
       });

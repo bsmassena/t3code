@@ -151,4 +151,46 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
       assert.equal(initialized.userAgent, "mock-codex-app-server");
     }),
   );
+
+  it.effect("decodes the prolite ChatGPT account plan from account/read", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const scope = yield* Scope.make();
+      const clientLayer = CodexClient.layerCommand({
+        command: "bun",
+        args: ["run", yield* mockPeerPath],
+        cwd: path.join(import.meta.dirname, ".."),
+        env: {
+          CODEX_APP_SERVER_MOCK_PLAN_TYPE: "prolite",
+        },
+      });
+      const context = yield* Layer.buildWithScope(clientLayer, scope);
+
+      const account = yield* Effect.gen(function* () {
+        const client = yield* CodexClient.CodexAppServerClient;
+
+        yield* client.request("initialize", {
+          clientInfo: {
+            name: "effect-codex-app-server-test",
+            title: "Effect Codex App Server Test",
+            version: "0.0.0",
+          },
+          capabilities: {
+            experimentalApi: true,
+            optOutNotificationMethods: null,
+          },
+        });
+
+        yield* client.notify("initialized", undefined);
+
+        return yield* client.request("account/read", {});
+      }).pipe(Effect.provide(context), Effect.ensuring(Scope.close(scope, Exit.void)));
+
+      assert.deepEqual(account.account, {
+        type: "chatgpt",
+        email: "mock@example.com",
+        planType: "prolite",
+      });
+    }),
+  );
 });

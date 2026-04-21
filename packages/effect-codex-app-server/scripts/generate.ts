@@ -41,6 +41,14 @@ interface JsonSchemaFile {
   readonly qualifiedName: string;
 }
 
+const PLAN_TYPE_SCHEMA_NAMES = [
+  "ServerNotification__PlanType",
+  "V2AccountRateLimitsUpdatedNotification__PlanType",
+  "V2AccountUpdatedNotification__PlanType",
+  "V2GetAccountRateLimitsResponse__PlanType",
+  "V2GetAccountResponse__PlanType",
+] as const;
+
 class GeneratorError extends Schema.TaggedErrorClass<GeneratorError>()("GeneratorError", {
   detail: Schema.String,
   cause: Schema.optional(Schema.Defect),
@@ -217,6 +225,30 @@ function collectSchemaEntries(
   }
 
   return entries;
+}
+
+function addGeneratedLiteral(entryCode: string, afterLiteral: string, literal: string): string {
+  let next = entryCode;
+  if (!next.includes(`"${literal}"`)) {
+    next = next.replace(
+      new RegExp(`"${afterLiteral}"\\s*\\|\\s*"team"`),
+      `"${afterLiteral}" | "${literal}" | "team"`,
+    );
+  }
+  if (!next.includes(`"${literal}",`)) {
+    next = next.replace(
+      new RegExp(`"${afterLiteral}",\\s*"team"`),
+      `"${afterLiteral}", "${literal}", "team"`,
+    );
+  }
+  return next;
+}
+
+function patchGeneratedEntry(entryName: string, entryCode: string): string {
+  if (!PLAN_TYPE_SCHEMA_NAMES.includes(entryName as (typeof PLAN_TYPE_SCHEMA_NAMES)[number])) {
+    return entryCode;
+  }
+  return addGeneratedLiteral(entryCode, "pro", "prolite");
 }
 
 function normalizeNullableTypes(value: typeof Schema.Json.Type): typeof Schema.Json.Type {
@@ -608,7 +640,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
   if (output.length > 0) {
     for (const entry of collectSchemaEntries(output)) {
       if (!generatedEntries.has(entry.name)) {
-        generatedEntries.set(entry.name, entry.code);
+        generatedEntries.set(entry.name, patchGeneratedEntry(entry.name, entry.code));
       }
     }
   }

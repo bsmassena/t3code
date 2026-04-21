@@ -224,6 +224,30 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         }),
       );
 
+      it.effect("maps the prolite plan to an authenticated ChatGPT label", () =>
+        Effect.gen(function* () {
+          const status = yield* checkCodexProviderStatus(() =>
+            Effect.succeed(
+              makeCodexProbeSnapshot({
+                account: {
+                  account: {
+                    type: "chatgpt",
+                    email: "test@example.com",
+                    planType: "prolite",
+                  },
+                  requiresOpenaiAuth: false,
+                },
+              }),
+            ),
+          );
+
+          assert.strictEqual(status.status, "ready");
+          assert.strictEqual(status.auth.status, "authenticated");
+          assert.strictEqual(status.auth.type, "chatgpt");
+          assert.strictEqual(status.auth.label, "ChatGPT Pro 5x Subscription");
+        }),
+      );
+
       it.effect("returns unauthenticated when app-server requires OpenAI auth", () =>
         Effect.gen(function* () {
           const status = yield* checkCodexProviderStatus(() =>
