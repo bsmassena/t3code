@@ -662,6 +662,73 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect("allows a new provider session without a resume cursor", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const before = routing.codex.startSession.mock.calls.length;
+      const threadId = asThreadId("thread-new-without-cursor");
+
+      const session = yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        cwd: "/tmp/project-new-without-cursor",
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(session.threadId, threadId);
+      assert.equal(routing.codex.startSession.mock.calls.length, before + 1);
+      const startInput = routing.codex.startSession.mock.calls.at(-1)?.[0];
+      assert.equal(typeof startInput === "object" && startInput !== null, true);
+      if (startInput && typeof startInput === "object") {
+        assert.equal("resumeCursor" in startInput, false);
+      }
+    }),
+  );
+
+  it.effect("fails an explicit resume when no resume cursor is available", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const before = routing.codex.startSession.mock.calls.length;
+      const threadId = asThreadId("thread-require-missing-cursor");
+
+      const failure = yield* Effect.flip(
+        provider.startSession(threadId, {
+          provider: "codex",
+          threadId,
+          requireResumeCursor: true,
+          runtimeMode: "full-access",
+        }),
+      );
+
+      assert.instanceOf(failure, ProviderValidationError);
+      assert.include(failure.issue, "no provider resume cursor is available");
+      assert.equal(routing.codex.startSession.mock.calls.length, before);
+    }),
+  );
+
+  it.effect("allows an explicit resume when a resume cursor is supplied", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-require-with-cursor");
+      const resumeCursor = { threadId, providerThreadId: "codex-thread-1" };
+
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        resumeCursor,
+        requireResumeCursor: true,
+        runtimeMode: "full-access",
+      });
+
+      const startInput = routing.codex.startSession.mock.calls.at(-1)?.[0];
+      assert.equal(typeof startInput === "object" && startInput !== null, true);
+      if (startInput && typeof startInput === "object") {
+        const startPayload = startInput as { resumeCursor?: unknown };
+        assert.deepEqual(startPayload.resumeCursor, resumeCursor);
+      }
+    }),
+  );
+
   it.effect("recovers stale persisted sessions for rollback by resuming thread identity", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;

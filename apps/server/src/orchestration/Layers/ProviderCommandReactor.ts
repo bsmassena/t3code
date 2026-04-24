@@ -303,6 +303,7 @@ const make = Effect.gen(function* () {
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
+      readonly requireResumeCursor?: boolean;
     }) =>
       providerService.startSession(threadId, {
         threadId,
@@ -310,6 +311,7 @@ const make = Effect.gen(function* () {
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        ...(input?.requireResumeCursor === true ? { requireResumeCursor: true } : {}),
         runtimeMode: desiredRuntimeMode,
       });
 
@@ -378,7 +380,9 @@ const make = Effect.gen(function* () {
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(
-        resumeCursor !== undefined ? { resumeCursor } : undefined,
+        resumeCursor !== undefined
+          ? { resumeCursor, requireResumeCursor: true }
+          : { requireResumeCursor: true },
       );
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
@@ -392,7 +396,10 @@ const make = Effect.gen(function* () {
       return restartedSession.threadId;
     }
 
-    const startedSession = yield* startProviderSession(undefined);
+    const requiresResumeCursor = thread.session != null || thread.messages.length > 1;
+    const startedSession = yield* startProviderSession(
+      requiresResumeCursor ? { requireResumeCursor: true } : undefined,
+    );
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
   });

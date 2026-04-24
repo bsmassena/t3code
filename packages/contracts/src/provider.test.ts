@@ -39,6 +39,17 @@ describe("ProviderSessionStartInput", () => {
     expect(getOptionValue(parsed.modelSelection.options, "fastMode")).toBe(true);
   });
 
+  it("accepts explicit resume cursor requirement", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-1",
+      provider: "codex",
+      requireResumeCursor: true,
+      runtimeMode: "full-access",
+    });
+
+    expect(parsed.requireResumeCursor).toBe(true);
+  });
+
   it("rejects payloads without runtime mode", () => {
     expect(() =>
       decodeProviderSessionStartInput({

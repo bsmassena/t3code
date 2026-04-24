@@ -364,6 +364,91 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
+  it("requires a resume cursor when starting a previously bound stopped thread", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-stopped-without-cursor"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "stopped",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.startSession.mockImplementationOnce((_: unknown, input: unknown) => {
+      const payload =
+        typeof input === "object" && input !== null
+          ? (input as { requireResumeCursor?: unknown; resumeCursor?: unknown })
+          : undefined;
+      const requiresResumeCursor = payload !== undefined && payload.requireResumeCursor === true;
+      const hasResumeCursor = payload !== undefined && "resumeCursor" in payload;
+      if (requiresResumeCursor && !hasResumeCursor) {
+        return Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: "codex",
+            method: "startSession",
+            detail: "missing resume cursor",
+          }),
+        ) as never;
+      }
+      return Effect.die(new Error("Expected missing resume cursor failure")) as never;
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-stopped-without-cursor"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-stopped-without-cursor"),
+          role: "user",
+          text: "resume old thread",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      threadId: ThreadId.make("thread-1"),
+      requireResumeCursor: true,
+    });
+    expect(harness.sendTurn.mock.calls.length).toBe(0);
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+      return (
+        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
+        false
+      );
+    });
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(thread?.session?.status).toBe("stopped");
+    expect(
+      thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
+    ).toMatchObject({
+      payload: {
+        detail: expect.stringContaining("missing resume cursor"),
+      },
+    });
+  });
+
   it("generates a thread title on the first turn", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

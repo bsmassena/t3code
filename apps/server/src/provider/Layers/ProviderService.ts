@@ -387,6 +387,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
                 ? "persisted"
                 : "none",
           "provider.resume_cursor.present": effectiveResumeCursor !== undefined,
+          "provider.resume_cursor.required": input.requireResumeCursor === true,
           "provider.cwd.source":
             input.cwd !== undefined
               ? "request"
@@ -395,6 +396,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
                 : "none",
           "provider.cwd.effective": effectiveCwd ?? "",
         });
+        if (input.requireResumeCursor === true && effectiveResumeCursor === undefined) {
+          return yield* toValidationError(
+            "ProviderService.startSession",
+            `Cannot resume thread '${threadId}' because no provider resume cursor is available. Starting a new provider session would lose conversation context.`,
+          );
+        }
         const adapter = yield* registry.getByProvider(input.provider);
         const session = yield* adapter.startSession({
           ...input,
