@@ -35,6 +35,8 @@ class CliError extends Data.TaggedError("CliError")<{
   readonly cause?: unknown;
 }> {}
 
+const PackageRunner = process.env.npm_execpath ?? "bun";
+
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("../../..", import.meta.url))),
 );
@@ -147,12 +149,10 @@ const buildCmd = Command.make(
 
       yield* Effect.log("[cli] Running tsdown...");
       yield* runCommand(
-        ChildProcess.make(process.execPath, ["--run", "build:bundle"], {
+        ChildProcess.make(PackageRunner, ["run", "build:bundle"], {
           cwd: serverDir,
           stdout: config.verbose ? "inherit" : "ignore",
           stderr: "inherit",
-          // Windows needs shell mode to resolve `.cmd` shims on PATH.
-          shell: process.platform === "win32",
         }),
       );
 
