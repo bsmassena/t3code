@@ -79,6 +79,8 @@ function createTestClient() {
     },
     projects: {
       searchEntries: vi.fn(async () => []),
+      listDirectory: vi.fn(async () => ({ relativePath: ".", entries: [], truncated: false })),
+      readFile: vi.fn(async () => ({ relativePath: "file.txt", contents: "", sizeBytes: 0 })),
       writeFile: vi.fn(async () => undefined),
     },
     shell: {

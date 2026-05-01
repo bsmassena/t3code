@@ -103,7 +103,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { ChevronDownIcon } from "lucide-react";
-import { cn, randomUUID } from "~/lib/utils";
+import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
@@ -179,6 +179,7 @@ import {
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 import { RightPanelSheet } from "./RightPanelSheet";
+import { WorkspaceEditorPanel } from "./WorkspaceEditorPanel";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -685,6 +686,11 @@ export default function ChatView(props: ChatViewProps) {
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
+  const [workspaceEditorOpen, setWorkspaceEditorOpen] = useState(true);
+  const [workspaceEditorOpenFileRequest, setWorkspaceEditorOpenFileRequest] = useState<{
+    readonly relativePath: string;
+    readonly requestId: number;
+  } | null>(null);
   const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
@@ -713,6 +719,7 @@ export default function ChatView(props: ChatViewProps) {
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewPromotionInFlightByMessageIdRef = useRef<Record<string, true>>({});
   const sendInFlightRef = useRef(false);
+  const workspaceEditorOpenFileRequestIdRef = useRef(0);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
 
   const terminalState = useTerminalStateStore((state) =>
@@ -1441,6 +1448,19 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  const editorFallbackCwds = useMemo(
+    () => [activeProjectCwd, serverConfig?.cwd ?? null],
+    [activeProjectCwd, serverConfig?.cwd],
+  );
+  const workspaceEditorAvailable =
+    activeWorkspaceRoot !== undefined || editorFallbackCwds.some(Boolean);
+  const workspaceEditorToggleShortcutLabel = useMemo(
+    () =>
+      typeof navigator !== "undefined" && isMacPlatform(navigator.platform)
+        ? "\u21e7\u2318E"
+        : "Ctrl+Shift+E",
+    [],
+  );
   const activeTerminalLaunchContext =
     terminalLaunchContext?.threadId === activeThreadId
       ? terminalLaunchContext
@@ -1485,6 +1505,38 @@ export default function ChatView(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
+  const toggleWorkspaceEditor = useCallback(() => {
+    if (!workspaceEditorAvailable) return;
+    setWorkspaceEditorOpen((open) => !open);
+  }, [workspaceEditorAvailable]);
+  const openWorkspaceFileInEditorPanel = useCallback(
+    (relativePath: string) => {
+      if (!workspaceEditorAvailable) return;
+      workspaceEditorOpenFileRequestIdRef.current += 1;
+      setWorkspaceEditorOpen(true);
+      setWorkspaceEditorOpenFileRequest({
+        relativePath,
+        requestId: workspaceEditorOpenFileRequestIdRef.current,
+      });
+    },
+    [workspaceEditorAvailable],
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!workspaceEditorAvailable) return;
+      if (event.altKey) return;
+      if (!event.shiftKey) return;
+      if (!event.ctrlKey && !event.metaKey) return;
+      if (event.key.toLowerCase() !== "e") return;
+
+      event.preventDefault();
+      setWorkspaceEditorOpen((open) => !open);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [workspaceEditorAvailable]);
   const onToggleDiff = useCallback(() => {
     if (!isServerThread) {
       return;
@@ -3274,6 +3326,9 @@ export default function ChatView(props: ChatViewProps) {
           terminalOpen={terminalState.terminalOpen}
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
+          workspaceEditorAvailable={workspaceEditorAvailable}
+          workspaceEditorOpen={workspaceEditorOpen}
+          workspaceEditorToggleShortcutLabel={workspaceEditorToggleShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
           onRunProjectScript={runProjectScript}
@@ -3282,6 +3337,7 @@ export default function ChatView(props: ChatViewProps) {
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
+          onToggleWorkspaceEditor={toggleWorkspaceEditor}
         />
       </header>
 
@@ -3312,6 +3368,9 @@ export default function ChatView(props: ChatViewProps) {
               activeThreadEnvironmentId={activeThread.environmentId}
               routeThreadKey={routeThreadKey}
               onOpenTurnDiff={onOpenTurnDiff}
+              onOpenWorkspaceFile={
+                workspaceEditorAvailable ? openWorkspaceFileInEditorPanel : undefined
+              }
               revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
               onRevertUserMessage={onRevertUserMessage}
               isRevertingCheckpoint={isRevertingCheckpoint}
@@ -3454,6 +3513,18 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
         </div>
         {/* end chat column */}
+
+        {workspaceEditorOpen ? (
+          <WorkspaceEditorPanel
+            environmentId={environmentId}
+            cwd={activeWorkspaceRoot}
+            fallbackCwd={activeProjectCwd}
+            fallbackCwds={editorFallbackCwds}
+            openFileRequest={workspaceEditorOpenFileRequest}
+            toggleShortcutLabel={workspaceEditorToggleShortcutLabel}
+            onClose={() => setWorkspaceEditorOpen(false)}
+          />
+        ) : null}
 
         {/* Plan sidebar */}
         {planSidebarOpen && !shouldUsePlanSidebarSheet ? (

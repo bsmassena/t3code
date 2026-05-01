@@ -200,7 +200,12 @@ function createMockEnvironmentApi(input: {
 }): EnvironmentApi {
   return {
     terminal: {} as EnvironmentApi["terminal"],
-    projects: {} as EnvironmentApi["projects"],
+    projects: {
+      searchEntries: async () => ({ entries: [], truncated: false }),
+      listDirectory: async () => ({ relativePath: ".", entries: [], truncated: false }),
+      readFile: async () => ({ relativePath: "file.txt", contents: "", sizeBytes: 0 }),
+      writeFile: async (input) => ({ relativePath: input.relativePath }),
+    },
     filesystem: {
       browse: input.browse,
     },

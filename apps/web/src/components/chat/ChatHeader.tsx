@@ -9,7 +9,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { DiffIcon, PanelRightIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -33,6 +33,9 @@ interface ChatHeaderProps {
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
   diffToggleShortcutLabel: string | null;
+  workspaceEditorAvailable: boolean;
+  workspaceEditorOpen: boolean;
+  workspaceEditorToggleShortcutLabel: string;
   gitCwd: string | null;
   diffOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -41,6 +44,7 @@ interface ChatHeaderProps {
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
+  onToggleWorkspaceEditor: () => void;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -59,6 +63,9 @@ export const ChatHeader = memo(function ChatHeader({
   terminalOpen,
   terminalToggleShortcutLabel,
   diffToggleShortcutLabel,
+  workspaceEditorAvailable,
+  workspaceEditorOpen,
+  workspaceEditorToggleShortcutLabel,
   gitCwd,
   diffOpen,
   onRunProjectScript,
@@ -67,6 +74,7 @@ export const ChatHeader = memo(function ChatHeader({
   onDeleteProjectScript,
   onToggleTerminal,
   onToggleDiff,
+  onToggleWorkspaceEditor,
 }: ChatHeaderProps) {
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
@@ -161,6 +169,28 @@ export const ChatHeader = memo(function ChatHeader({
               : diffToggleShortcutLabel
                 ? `Toggle diff panel (${diffToggleShortcutLabel})`
                 : "Toggle diff panel"}
+          </TooltipPopup>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                className="shrink-0"
+                pressed={workspaceEditorOpen}
+                onPressedChange={onToggleWorkspaceEditor}
+                aria-label="Toggle workspace editor"
+                variant="outline"
+                size="xs"
+                disabled={!workspaceEditorAvailable}
+              >
+                <PanelRightIcon className="size-3" />
+              </Toggle>
+            }
+          />
+          <TooltipPopup side="bottom">
+            {!workspaceEditorAvailable
+              ? "Workspace editor is unavailable until this thread has an active project."
+              : `Toggle workspace editor (${workspaceEditorToggleShortcutLabel})`}
           </TooltipPopup>
         </Tooltip>
       </div>

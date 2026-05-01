@@ -55,6 +55,7 @@ interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
   isStreaming?: boolean;
+  onOpenWorkspaceFile?: ((relativePath: string) => void) | undefined;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -248,6 +249,8 @@ interface MarkdownFileLinkProps {
   filePath: string;
   label: string;
   theme: "light" | "dark";
+  workspaceRelativePath: string | null;
+  onOpenWorkspaceFile?: ((relativePath: string) => void) | undefined;
   className?: string | undefined;
 }
 
@@ -331,6 +334,30 @@ function normalizeMarkdownLinkHrefKey(href: string): string {
   return rewriteMarkdownFileUriHref(href.trim()) ?? href.trim();
 }
 
+function normalizePathForWorkspaceComparison(path: string): string {
+  return path.replaceAll("\\", "/").replace(/[\\/]+$/, "");
+}
+
+function isAbsoluteWorkspacePath(path: string): boolean {
+  return /^[A-Za-z]:\//.test(path) || path.startsWith("/");
+}
+
+function workspaceRelativePathForFile(filePath: string, cwd: string | undefined): string | null {
+  const normalizedPath = normalizePathForWorkspaceComparison(filePath);
+  if (!isAbsoluteWorkspacePath(normalizedPath)) {
+    return normalizedPath.replace(/^\.\/+/, "");
+  }
+  if (!cwd) return null;
+
+  const normalizedCwd = normalizePathForWorkspaceComparison(cwd);
+  const pathForCompare = normalizedPath.toLowerCase();
+  const cwdForCompare = normalizedCwd.toLowerCase();
+  const cwdWithSeparator = `${cwdForCompare}/`;
+  if (pathForCompare === cwdForCompare) return null;
+  if (!pathForCompare.startsWith(cwdWithSeparator)) return null;
+  return normalizedPath.slice(normalizedCwd.length + 1);
+}
+
 const MarkdownFileLink = memo(function MarkdownFileLink({
   href,
   targetPath,
@@ -338,9 +365,16 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   filePath,
   label,
   theme,
+  workspaceRelativePath,
+  onOpenWorkspaceFile,
   className,
 }: MarkdownFileLinkProps) {
   const handleOpen = useCallback(() => {
+    if (workspaceRelativePath && onOpenWorkspaceFile) {
+      onOpenWorkspaceFile(workspaceRelativePath);
+      return;
+    }
+
     const api = readLocalApi();
     if (!api) {
       toastManager.add({
@@ -359,7 +393,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         }),
       );
     });
-  }, [targetPath]);
+  }, [onOpenWorkspaceFile, targetPath, workspaceRelativePath]);
 
   const handleCopy = useCallback((value: string, title: string) => {
     if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
@@ -403,7 +437,11 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
 
       const clicked = await api.contextMenu.show(
         [
-          { id: "open", label: "Open in editor" },
+          {
+            id: "open",
+            label:
+              workspaceRelativePath && onOpenWorkspaceFile ? "Open in sidebar" : "Open in editor",
+          },
           { id: "copy-relative", label: "Copy relative path" },
           { id: "copy-full", label: "Copy full path" },
         ] as const,
@@ -422,7 +460,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         handleCopy(targetPath, "Full path");
       }
     },
-    [displayPath, handleCopy, handleOpen, targetPath],
+    [displayPath, handleCopy, handleOpen, onOpenWorkspaceFile, targetPath, workspaceRelativePath],
   );
 
   return (
@@ -472,11 +510,13 @@ function areMarkdownFileLinkPropsEqual(
     previous.filePath === next.filePath &&
     previous.label === next.label &&
     previous.theme === next.theme &&
+    previous.workspaceRelativePath === next.workspaceRelativePath &&
+    previous.onOpenWorkspaceFile === next.onOpenWorkspaceFile &&
     previous.className === next.className
   );
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
+function ChatMarkdown({ text, cwd, isStreaming = false, onOpenWorkspaceFile }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const markdownFileLinkMetaByHref = useMemo(() => {
@@ -529,6 +569,8 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
             filePath={fileLinkMeta.filePath}
             label={labelParts.join(" · ")}
             theme={resolvedTheme}
+            workspaceRelativePath={workspaceRelativePathForFile(fileLinkMeta.filePath, cwd)}
+            onOpenWorkspaceFile={onOpenWorkspaceFile}
             className={props.className}
           />
         );
@@ -558,8 +600,10 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
     [
       diffThemeName,
       fileLinkParentSuffixByPath,
+      cwd,
       isStreaming,
       markdownFileLinkMetaByHref,
+      onOpenWorkspaceFile,
       resolvedTheme,
     ],
   );
