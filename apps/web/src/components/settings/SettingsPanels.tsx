@@ -457,6 +457,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const isCommitHistoryStyleDirty =
+    settings.includeRecentCommitsInCommitMessages !==
+    DEFAULT_UNIFIED_SETTINGS.includeRecentCommitsInCommitMessages;
   const areProviderSettingsDirty = PROVIDER_SETTINGS.some((providerSettings) => {
     const currentSettings = settings.providers[providerSettings.provider];
     const defaultSettings = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
@@ -491,11 +494,13 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Delete confirmation"]
         : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
+      ...(isCommitHistoryStyleDirty ? ["Commit message style"] : []),
       ...(areProviderSettingsDirty ? ["Providers"] : []),
     ],
     [
       areProviderSettingsDirty,
       isGitWritingModelDirty,
+      isCommitHistoryStyleDirty,
       settings.autoOpenPlanSidebar,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
@@ -633,6 +638,9 @@ export function GeneralSettingsPanel() {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const isCommitHistoryStyleDirty =
+    settings.includeRecentCommitsInCommitMessages !==
+    DEFAULT_UNIFIED_SETTINGS.includeRecentCommitsInCommitMessages;
 
   const openInPreferredEditor = useCallback(
     (target: "keybindings" | "logsDirectory", path: string | null, failureMessage: string) => {
@@ -1164,6 +1172,33 @@ export function GeneralSettingsPanel() {
                 }}
               />
             </div>
+          }
+        />
+
+        <SettingsRow
+          title="Commit message style"
+          description="Include recent commit subjects when auto-generating commit messages."
+          resetAction={
+            isCommitHistoryStyleDirty ? (
+              <SettingResetButton
+                label="commit message style"
+                onClick={() =>
+                  updateSettings({
+                    includeRecentCommitsInCommitMessages:
+                      DEFAULT_UNIFIED_SETTINGS.includeRecentCommitsInCommitMessages,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.includeRecentCommitsInCommitMessages}
+              onCheckedChange={(checked) =>
+                updateSettings({ includeRecentCommitsInCommitMessages: Boolean(checked) })
+              }
+              aria-label="Use recent commits for generated commit messages"
+            />
           }
         />
       </SettingsSection>

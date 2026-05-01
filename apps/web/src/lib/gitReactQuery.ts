@@ -169,6 +169,7 @@ export function gitRunStackedActionMutationOptions(input: {
       action,
       commitMessage,
       featureBranch,
+      includeRecentCommitsInCommitMessages,
       filePaths,
       onProgress,
     }: {
@@ -176,6 +177,7 @@ export function gitRunStackedActionMutationOptions(input: {
       action: GitStackedAction;
       commitMessage?: string;
       featureBranch?: boolean;
+      includeRecentCommitsInCommitMessages?: boolean;
       filePaths?: string[];
       onProgress?: (event: GitActionProgressEvent) => void;
     }) => {
@@ -187,6 +189,9 @@ export function gitRunStackedActionMutationOptions(input: {
           cwd: input.cwd,
           ...(commitMessage ? { commitMessage } : {}),
           ...(featureBranch ? { featureBranch: true } : {}),
+          ...(includeRecentCommitsInCommitMessages !== undefined
+            ? { includeRecentCommitsInCommitMessages }
+            : {}),
           ...(filePaths && filePaths.length > 0 ? { filePaths } : {}),
         },
         ...(onProgress ? [{ onProgress }] : []),

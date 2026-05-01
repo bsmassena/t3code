@@ -54,6 +54,7 @@ import { readEnvironmentApi } from "~/environmentApi";
 import { readLocalApi } from "~/localApi";
 import { useStore } from "~/store";
 import { createThreadSelectorByRef } from "~/storeSelectors";
+import { useSettings } from "~/hooks/useSettings";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -235,6 +236,9 @@ export default function GitActionsControl({
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const setThreadBranch = useStore((store) => store.setThreadBranch);
   const queryClient = useQueryClient();
+  const includeRecentCommitsInCommitMessages = useSettings(
+    (settings) => settings.includeRecentCommitsInCommitMessages,
+  );
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
@@ -637,6 +641,7 @@ export default function GitActionsControl({
         action,
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
+        includeRecentCommitsInCommitMessages,
         ...(filePaths ? { filePaths } : {}),
         onProgress: applyProgressEvent,
       });

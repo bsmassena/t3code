@@ -57,6 +57,8 @@ const SHORT_SHA_LENGTH = 7;
 const TOAST_DESCRIPTION_MAX = 72;
 const STATUS_RESULT_CACHE_TTL = Duration.seconds(1);
 const STATUS_RESULT_CACHE_CAPACITY = 2_048;
+const COMMIT_MESSAGE_RECENT_COMMITS_LIMIT = 12;
+const COMMIT_MESSAGE_RECENT_COMMITS_MAX_CHARS = 6_000;
 type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
 type GitActionProgressPayload = StripProgressContext<GitActionProgressEvent>;
 type GitActionProgressEmitter = (event: GitActionProgressPayload) => Effect.Effect<void, never>;
@@ -1046,6 +1048,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       commitMessage?: string;
       /** When true, also produce a semantic feature branch name. */
       includeBranch?: boolean;
+      includeRecentCommitsInCommitMessages?: boolean;
       filePaths?: readonly string[];
       modelSelection: ModelSelection;
     }) {
@@ -1066,12 +1069,18 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         };
       }
 
+      const recentCommits = yield* resolveRecentCommitSubjects(
+        input.cwd,
+        input.includeRecentCommitsInCommitMessages,
+      );
+
       const generated = yield* textGeneration
         .generateCommitMessage({
           cwd: input.cwd,
           branch: input.branch,
           stagedSummary: limitContext(context.stagedSummary, 8_000),
           stagedPatch: limitContext(context.stagedPatch, 50_000),
+          ...(recentCommits.length > 0 ? { recentCommits } : {}),
           ...(input.includeBranch ? { includeBranch: true } : {}),
           modelSelection: input.modelSelection,
         })
@@ -1086,6 +1095,42 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     },
   );
 
+  const resolveRecentCommitSubjects = Effect.fn("resolveRecentCommitSubjects")(function* (
+    cwd: string,
+    explicitPreference?: boolean,
+  ) {
+    const includeRecentCommits = yield* serverSettingsService.getSettings.pipe(
+      Effect.map((settings) => settings.includeRecentCommitsInCommitMessages),
+      Effect.map((settingsValue) => explicitPreference ?? settingsValue),
+      Effect.mapError((cause) =>
+        gitManagerError("resolveRecentCommitSubjects", "Failed to get server settings.", cause),
+      ),
+    );
+
+    if (!includeRecentCommits) {
+      return "";
+    }
+
+    return yield* gitCore
+      .execute({
+        operation: "GitManager.resolveRecentCommitSubjects",
+        cwd,
+        args: [
+          "log",
+          "--no-merges",
+          `--max-count=${COMMIT_MESSAGE_RECENT_COMMITS_LIMIT}`,
+          "--pretty=format:%h %s",
+        ],
+        allowNonZeroExit: true,
+        maxOutputBytes: COMMIT_MESSAGE_RECENT_COMMITS_MAX_CHARS,
+        truncateOutputAtMaxBytes: true,
+      })
+      .pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.catch(() => Effect.succeed("")),
+      );
+  });
+
   const runCommitStep = Effect.fn("runCommitStep")(function* (
     modelSelection: ModelSelection,
     cwd: string,
@@ -1094,6 +1139,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     commitMessage?: string,
     preResolvedSuggestion?: CommitAndBranchSuggestion,
     filePaths?: readonly string[],
+    includeRecentCommitsInCommitMessages?: boolean,
     progressReporter?: GitActionProgressReporter,
     actionId?: string,
   ) {
@@ -1122,6 +1168,9 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         branch,
         ...(commitMessage ? { commitMessage } : {}),
         ...(filePaths ? { filePaths } : {}),
+        ...(includeRecentCommitsInCommitMessages !== undefined
+          ? { includeRecentCommitsInCommitMessages }
+          : {}),
         modelSelection,
       });
     }
@@ -1509,12 +1558,16 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     branch: string | null,
     commitMessage?: string,
     filePaths?: readonly string[],
+    includeRecentCommitsInCommitMessages?: boolean,
   ) {
     const suggestion = yield* resolveCommitAndBranchSuggestion({
       cwd,
       branch,
       ...(commitMessage ? { commitMessage } : {}),
       ...(filePaths ? { filePaths } : {}),
+      ...(includeRecentCommitsInCommitMessages !== undefined
+        ? { includeRecentCommitsInCommitMessages }
+        : {}),
       includeBranch: true,
       modelSelection,
     });
@@ -1623,6 +1676,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
             initialStatus.branch,
             input.commitMessage,
             input.filePaths,
+            input.includeRecentCommitsInCommitMessages,
           );
           branchStep = result.branchStep;
           commitMessageForStep = result.resolvedCommitMessage;
@@ -1645,6 +1699,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
                   commitMessageForStep,
                   preResolvedCommitSuggestion,
                   input.filePaths,
+                  input.includeRecentCommitsInCommitMessages,
                   options?.progressReporter,
                   progress.actionId,
                 ),

@@ -10,6 +10,7 @@ import type {
   GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
   ModelSelection,
+  ServerSettings,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -59,6 +60,7 @@ interface FakeGitTextGeneration {
     branch: string | null;
     stagedSummary: string;
     stagedPatch: string;
+    recentCommits?: string | undefined;
     includeBranch?: boolean;
     modelSelection: ModelSelection;
   }) => Effect.Effect<
@@ -630,6 +632,7 @@ function makeManager(input?: {
   ghScenario?: FakeGhScenario;
   textGeneration?: Partial<FakeGitTextGeneration>;
   setupScriptRunner?: ProjectSetupScriptRunnerShape;
+  settings?: Partial<ServerSettings>;
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
@@ -637,7 +640,7 @@ function makeManager(input?: {
     prefix: "t3-git-manager-test-",
   });
 
-  const serverSettingsLayer = ServerSettingsService.layerTest();
+  const serverSettingsLayer = ServerSettingsService.layerTest(input?.settings);
 
   const gitCoreLayer = GitCoreLive.pipe(
     Layer.provideMerge(NodeServices.layer),
@@ -1291,6 +1294,65 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           Effect.map((result) => result.stdout.trim()),
         ),
       ).toBe("Implement stacked git actions");
+    }),
+  );
+
+  it.effect("passes recent commit subjects to automatic commit generation when enabled", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      fs.writeFileSync(path.join(repoDir, "first.txt"), "first\n");
+      yield* runGit(repoDir, ["add", "first.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "feat: add first fixture"]);
+      fs.writeFileSync(path.join(repoDir, "second.txt"), "second\n");
+      yield* runGit(repoDir, ["add", "second.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "fix: add second fixture"]);
+      yield* runGit(repoDir, ["checkout", "-b", "merge-source"]);
+      fs.writeFileSync(path.join(repoDir, "merge-source.txt"), "merge source\n");
+      yield* runGit(repoDir, ["add", "merge-source.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "chore: add merge source fixture"]);
+      yield* runGit(repoDir, ["checkout", "main"]);
+      fs.writeFileSync(path.join(repoDir, "main-side.txt"), "main side\n");
+      yield* runGit(repoDir, ["add", "main-side.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "chore: add main side fixture"]);
+      yield* runGit(repoDir, [
+        "merge",
+        "--no-ff",
+        "merge-source",
+        "-m",
+        "Merge branch 'merge-source'",
+      ]);
+      fs.writeFileSync(path.join(repoDir, "README.md"), "hello\nhistory\n");
+
+      let recentCommits = "";
+      const { manager } = yield* makeManager({
+        settings: {
+          includeRecentCommitsInCommitMessages: true,
+        },
+        textGeneration: {
+          generateCommitMessage: (input) =>
+            Effect.sync(() => {
+              recentCommits = input.recentCommits ?? "";
+              return {
+                subject: "test: follow repository style",
+                body: "",
+              };
+            }),
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "commit",
+      });
+
+      expect(result.commit.status).toBe("created");
+      expect(recentCommits).not.toContain("Merge branch");
+      expect(recentCommits).toContain("chore: add main side fixture");
+      expect(recentCommits).toContain("chore: add merge source fixture");
+      expect(recentCommits).toContain("fix: add second fixture");
+      expect(recentCommits).toContain("feat: add first fixture");
+      expect(recentCommits).toContain("Initial commit");
     }),
   );
 

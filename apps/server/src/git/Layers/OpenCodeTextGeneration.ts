@@ -394,6 +394,7 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
       branch: input.branch,
       stagedSummary: input.stagedSummary,
       stagedPatch: input.stagedPatch,
+      recentCommits: input.recentCommits,
       includeBranch: input.includeBranch === true,
     });
     const generated = yield* runOpenCodeJson({

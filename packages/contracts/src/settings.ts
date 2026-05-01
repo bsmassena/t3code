@@ -135,6 +135,9 @@ export const ServerSettings = Schema.Struct({
       }),
     ),
   ),
+  includeRecentCommitsInCommitMessages: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
 
   // Provider specific settings
   providers: Schema.Struct({
@@ -230,6 +233,7 @@ export const ServerSettingsPatch = Schema.Struct({
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   addProjectBaseDirectory: Schema.optionalKey(Schema.String),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  includeRecentCommitsInCommitMessages: Schema.optionalKey(Schema.Boolean),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(Schema.String),

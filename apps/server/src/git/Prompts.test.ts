@@ -49,6 +49,20 @@ describe("buildCommitMessagePrompt", () => {
 
     expect(result.prompt).toContain("Branch: (detached)");
   });
+
+  it("includes recent commits when provided", () => {
+    const result = buildCommitMessagePrompt({
+      branch: "main",
+      stagedSummary: "M a.ts",
+      stagedPatch: "diff",
+      recentCommits: "abc1234 feat: add settings\nbcd2345 fix: repair commit action",
+      includeBranch: false,
+    });
+
+    expect(result.prompt).toContain("Recent commits:");
+    expect(result.prompt).toContain("abc1234 feat: add settings");
+    expect(result.prompt).toContain("follow the style and structure");
+  });
 });
 
 describe("buildPrContentPrompt", () => {

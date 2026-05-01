@@ -19,11 +19,13 @@ export interface CommitMessagePromptInput {
   branch: string | null;
   stagedSummary: string;
   stagedPatch: string;
+  recentCommits?: string | undefined;
   includeBranch: boolean;
 }
 
 export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
   const wantsBranch = input.includeBranch;
+  const recentCommits = input.recentCommits?.trim() ?? "";
 
   const prompt = [
     "You write concise git commit messages.",
@@ -37,8 +39,14 @@ export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
       ? ["- branch must be a short semantic git branch fragment for this change"]
       : []),
     "- capture the primary user-visible or developer-visible change",
+    ...(recentCommits.length > 0
+      ? ["- follow the style and structure used by the recent commits when appropriate"]
+      : []),
     "",
     `Branch: ${input.branch ?? "(detached)"}`,
+    ...(recentCommits.length > 0
+      ? ["", "Recent commits:", limitSection(recentCommits, 6_000)]
+      : []),
     "",
     "Staged files:",
     limitSection(input.stagedSummary, 6_000),
