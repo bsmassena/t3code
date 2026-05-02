@@ -71,6 +71,9 @@ const editorTheme = EditorView.theme({
     caretColor: "var(--foreground)",
     padding: "12px 0 12px 8px",
   },
+  ".cm-cursor, .cm-dropCursor": {
+    borderLeftColor: "var(--foreground)",
+  },
   ".cm-line": {
     color: "var(--foreground)",
   },
