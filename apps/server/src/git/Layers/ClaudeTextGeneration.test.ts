@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as nodePath from "node:path";
 import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path } from "effect";
 import { createModelSelection } from "@t3tools/shared/model";
@@ -25,40 +26,45 @@ function makeFakeClaudeBinary(dir: string) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const binDir = path.join(dir, "bin");
-    const claudePath = path.join(binDir, "claude");
+    const claudePath = path.join(binDir, process.platform === "win32" ? "claude.cmd" : "claude");
+    const scriptPath = path.join(binDir, "fake-claude.cjs");
     yield* fs.makeDirectory(binDir, { recursive: true });
 
     yield* fs.writeFileString(
+      scriptPath,
+      `const fs = require("node:fs");
+const args = process.argv.slice(2).join(" ");
+const normalizedArgs = args.replaceAll('"', "");
+const stdinContent = fs.readFileSync(0, "utf8");
+function fail(code, message) {
+  process.stderr.write(message + "\\n");
+  process.exit(code);
+}
+if (
+  process.env.T3_FAKE_CLAUDE_ARGS_MUST_CONTAIN &&
+  !args.includes(process.env.T3_FAKE_CLAUDE_ARGS_MUST_CONTAIN) &&
+  !normalizedArgs.includes(process.env.T3_FAKE_CLAUDE_ARGS_MUST_CONTAIN.replaceAll('"', ""))
+) fail(2, "args missing expected content");
+if (
+  process.env.T3_FAKE_CLAUDE_ARGS_MUST_NOT_CONTAIN &&
+  args.includes(process.env.T3_FAKE_CLAUDE_ARGS_MUST_NOT_CONTAIN)
+) fail(3, "args contained forbidden content");
+if (
+  process.env.T3_FAKE_CLAUDE_STDIN_MUST_CONTAIN &&
+  !stdinContent.includes(process.env.T3_FAKE_CLAUDE_STDIN_MUST_CONTAIN)
+) fail(4, "stdin missing expected content");
+if (process.env.T3_FAKE_CLAUDE_STDERR) {
+  process.stderr.write(process.env.T3_FAKE_CLAUDE_STDERR + "\\n");
+}
+process.stdout.write(process.env.T3_FAKE_CLAUDE_OUTPUT ?? "");
+process.exit(Number(process.env.T3_FAKE_CLAUDE_EXIT_CODE ?? "0"));
+`,
+    );
+    yield* fs.writeFileString(
       claudePath,
-      [
-        "#!/bin/sh",
-        'args="$*"',
-        'stdin_content="$(cat)"',
-        'if [ -n "$T3_FAKE_CLAUDE_ARGS_MUST_CONTAIN" ]; then',
-        '  printf "%s" "$args" | grep -F -- "$T3_FAKE_CLAUDE_ARGS_MUST_CONTAIN" >/dev/null || {',
-        '    printf "%s\\n" "args missing expected content" >&2',
-        "    exit 2",
-        "  }",
-        "fi",
-        'if [ -n "$T3_FAKE_CLAUDE_ARGS_MUST_NOT_CONTAIN" ]; then',
-        '  if printf "%s" "$args" | grep -F -- "$T3_FAKE_CLAUDE_ARGS_MUST_NOT_CONTAIN" >/dev/null; then',
-        '    printf "%s\\n" "args contained forbidden content" >&2',
-        "    exit 3",
-        "  fi",
-        "fi",
-        'if [ -n "$T3_FAKE_CLAUDE_STDIN_MUST_CONTAIN" ]; then',
-        '  printf "%s" "$stdin_content" | grep -F -- "$T3_FAKE_CLAUDE_STDIN_MUST_CONTAIN" >/dev/null || {',
-        '    printf "%s\\n" "stdin missing expected content" >&2',
-        "    exit 4",
-        "  }",
-        "fi",
-        'if [ -n "$T3_FAKE_CLAUDE_STDERR" ]; then',
-        '  printf "%s\\n" "$T3_FAKE_CLAUDE_STDERR" >&2',
-        "fi",
-        'printf "%s" "$T3_FAKE_CLAUDE_OUTPUT"',
-        'exit "${T3_FAKE_CLAUDE_EXIT_CODE:-0}"',
-        "",
-      ].join("\n"),
+      process.platform === "win32"
+        ? `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`
+        : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(scriptPath)} "$@"\n`,
     );
     yield* fs.chmod(claudePath, 0o755);
     return binDir;
@@ -90,7 +96,7 @@ function withFakeClaudeEnv<A, E, R>(
       const previousStdinMustContain = process.env.T3_FAKE_CLAUDE_STDIN_MUST_CONTAIN;
 
       yield* Effect.sync(() => {
-        process.env.PATH = `${binDir}:${previousPath ?? ""}`;
+        process.env.PATH = `${binDir}${nodePath.delimiter}${previousPath ?? ""}`;
         process.env.T3_FAKE_CLAUDE_OUTPUT = input.output;
 
         if (input.exitCode !== undefined) {

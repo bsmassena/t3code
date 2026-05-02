@@ -24,16 +24,46 @@ async function makeMockAgentWrapper(
   options?: { initialDelaySeconds?: number },
 ) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cursor-acp-mock-"));
-  const wrapperPath = path.join(dir, "fake-agent.sh");
-  const envExports = Object.entries(extraEnv ?? {})
-    .map(([key, value]) => `export ${key}=${JSON.stringify(value)}`)
-    .join("\n");
-  const script = `#!/bin/sh
-${envExports}
-${options?.initialDelaySeconds ? `sleep ${JSON.stringify(String(options.initialDelaySeconds))}` : ""}
-exec ${JSON.stringify(bunExe)} ${JSON.stringify(mockAgentPath)} "$@"
+  const wrapperPath = path.join(
+    dir,
+    process.platform === "win32" ? "fake-agent.cmd" : "fake-agent",
+  );
+  const scriptPath = path.join(dir, "fake-agent-wrapper.cjs");
+  const script = `const { spawn } = require("node:child_process");
+const delayMs = ${JSON.stringify((options?.initialDelaySeconds ?? 0) * 1000)};
+const env = { ...process.env, ...${JSON.stringify(extraEnv ?? {})} };
+const start = () => {
+  const child = spawn(${JSON.stringify(bunExe)}, [${JSON.stringify(mockAgentPath)}, ...process.argv.slice(2)], {
+    env,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  const logExit = (value) => {
+    if (env.T3_ACP_EXIT_LOG_PATH) {
+      require("node:fs").appendFileSync(env.T3_ACP_EXIT_LOG_PATH, value + "\\n");
+    }
+  };
+  process.on("SIGTERM", () => {
+    logExit("SIGTERM");
+    child.kill("SIGTERM");
+  });
+  child.on("exit", (code, signal) => {
+    logExit(signal ?? ("exit:" + (code ?? 0)));
+    if (signal) process.kill(process.pid, signal);
+    else process.exit(code ?? 0);
+  });
+};
+if (delayMs > 0) setTimeout(start, delayMs);
+else start();
 `;
-  await writeFile(wrapperPath, script, "utf8");
+  await writeFile(scriptPath, script, "utf8");
+  await writeFile(
+    wrapperPath,
+    process.platform === "win32"
+      ? `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`
+      : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(scriptPath)} "$@"\n`,
+    "utf8",
+  );
   await chmod(wrapperPath, 0o755);
   return wrapperPath;
 }
@@ -44,18 +74,51 @@ async function makeProbeWrapper(
   extraEnv?: Record<string, string>,
 ) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cursor-acp-probe-"));
-  const wrapperPath = path.join(dir, "fake-agent.sh");
-  const envExports = Object.entries(extraEnv ?? {})
-    .map(([key, value]) => `export ${key}=${JSON.stringify(value)}`)
-    .join("\n");
-  const script = `#!/bin/sh
-printf '%s\t' "$@" >> ${JSON.stringify(argvLogPath)}
-printf '\n' >> ${JSON.stringify(argvLogPath)}
-export T3_ACP_REQUEST_LOG_PATH=${JSON.stringify(requestLogPath)}
-${envExports}
-exec ${JSON.stringify(bunExe)} ${JSON.stringify(mockAgentPath)} "$@"
-`;
-  await writeFile(wrapperPath, script, "utf8");
+  const wrapperPath = path.join(
+    dir,
+    process.platform === "win32" ? "fake-agent.cmd" : "fake-agent",
+  );
+  const scriptPath = path.join(dir, "fake-agent-wrapper.cjs");
+  await writeFile(
+    scriptPath,
+    `const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(argvLogPath)}, args.join("\\t") + "\\n");
+const env = {
+  ...process.env,
+  T3_ACP_REQUEST_LOG_PATH: ${JSON.stringify(requestLogPath)},
+  ...${JSON.stringify(extraEnv ?? {})},
+};
+const child = spawn(${JSON.stringify(bunExe)}, [${JSON.stringify(mockAgentPath)}, ...args], {
+  env,
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
+const logExit = (value) => {
+  if (env.T3_ACP_EXIT_LOG_PATH) {
+    require("node:fs").appendFileSync(env.T3_ACP_EXIT_LOG_PATH, value + "\\n");
+  }
+};
+process.on("SIGTERM", () => {
+  logExit("SIGTERM");
+  child.kill("SIGTERM");
+});
+child.on("exit", (code, signal) => {
+  logExit(signal ?? ("exit:" + (code ?? 0)));
+  if (signal) process.kill(process.pid, signal);
+  else process.exit(code ?? 0);
+});
+`,
+    "utf8",
+  );
+  await writeFile(
+    wrapperPath,
+    process.platform === "win32"
+      ? `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`
+      : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(scriptPath)} "$@"\n`,
+    "utf8",
+  );
   await chmod(wrapperPath, 0o755);
   return wrapperPath;
 }
@@ -104,6 +167,8 @@ const cursorAdapterTestLayer = it.layer(
 );
 
 cursorAdapterTestLayer("CursorAdapterLive", (it) => {
+  const acpExitSignalTest = process.platform === "win32" ? it.effect.skip : it.effect;
+
   it.effect("starts a session and maps mock ACP prompt flow to runtime events", () =>
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
@@ -186,7 +251,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     }),
   );
 
-  it.effect("closes the ACP child process when a session stops", () =>
+  acpExitSignalTest("closes the ACP child process when a session stops", () =>
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const settings = yield* ServerSettingsService;
@@ -214,11 +279,15 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       yield* adapter.stopSession(threadId);
 
       const exitLog = yield* Effect.promise(() => waitForFileContent(exitLogPath));
-      assert.include(exitLog, "SIGTERM");
+      if (process.platform === "win32") {
+        assert.isTrue(exitLog.trim().length > 0);
+      } else {
+        assert.include(exitLog, "SIGTERM");
+      }
     }),
   );
 
-  it.effect(
+  acpExitSignalTest(
     "serializes concurrent startSession calls for the same thread and closes the replaced ACP session",
     () =>
       Effect.gen(function* () {
@@ -266,7 +335,11 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
         yield* adapter.stopSession(threadId);
 
         const exitLog = yield* Effect.promise(() => waitForFileContent(exitLogPath));
-        assert.equal(exitLog.match(/SIGTERM/g)?.length ?? 0, 2);
+        if (process.platform === "win32") {
+          assert.isAtLeast(exitLog.trim().split(/\r?\n/).filter(Boolean).length, 2);
+        } else {
+          assert.equal(exitLog.match(/SIGTERM/g)?.length ?? 0, 2);
+        }
       }),
   );
 

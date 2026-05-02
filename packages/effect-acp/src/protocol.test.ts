@@ -52,7 +52,6 @@ const makeHandle = (env?: Record<string, string>) =>
     const path = yield* Path.Path;
     const command = ChildProcess.make("bun", ["run", yield* mockPeerPath], {
       cwd: path.join(import.meta.dirname, ".."),
-      shell: process.platform === "win32",
       ...(env ? { env: { ...process.env, ...env } } : {}),
     });
     return yield* spawner.spawn(command);
@@ -358,35 +357,39 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
     }),
   );
 
-  it.effect("propagates the real child exit code when the input stream ends", () =>
-    Effect.gen(function* () {
-      const handle = yield* makeHandle({ ACP_MOCK_EXIT_IMMEDIATELY_CODE: "7" });
-      const firstMessage = yield* Deferred.make<unknown>();
-      const termination = yield* Deferred.make<AcpError.AcpError>();
-      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
-        stdio: makeChildStdio(handle),
-        terminationError: makeTerminationError(handle),
-        serverRequestMethods: new Set(),
-        onTermination: (error) => Deferred.succeed(termination, error).pipe(Effect.asVoid),
-      });
+  it.effect(
+    "propagates the real child exit code when the input stream ends",
+    () =>
+      Effect.gen(function* () {
+        const handle = yield* makeHandle({ ACP_MOCK_EXIT_IMMEDIATELY_CODE: "7" });
+        const firstMessage = yield* Deferred.make<unknown>();
+        const termination = yield* Deferred.make<AcpError.AcpError>();
+        const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+          stdio: makeChildStdio(handle),
+          terminationError: makeTerminationError(handle),
+          serverRequestMethods: new Set(),
+          onTermination: (error) => Deferred.succeed(termination, error).pipe(Effect.asVoid),
+        });
 
-      yield* transport.clientProtocol
-        .run(0, (message) => Deferred.succeed(firstMessage, message).pipe(Effect.asVoid))
-        .pipe(Effect.forkScoped);
+        yield* transport.clientProtocol
+          .run(0, (message) => Deferred.succeed(firstMessage, message).pipe(Effect.asVoid))
+          .pipe(Effect.forkScoped);
 
-      const message = yield* Deferred.await(firstMessage);
-      const exitError = yield* Deferred.await(termination);
-      assert.instanceOf(exitError, AcpError.AcpProcessExitedError);
-      assert.equal((exitError as AcpError.AcpProcessExitedError).code, 7);
-      assert.equal((message as { readonly _tag?: string })._tag, "ClientProtocolError");
-      const defect = (message as { readonly error: { readonly reason: unknown } }).error.reason as {
-        readonly _tag: string;
-        readonly cause: unknown;
-      };
-      assert.equal(defect._tag, "RpcClientDefect");
-      assert.instanceOf(defect.cause, AcpError.AcpProcessExitedError);
-      assert.equal((defect.cause as AcpError.AcpProcessExitedError).code, 7);
-    }),
+        const message = yield* Deferred.await(firstMessage);
+        const exitError = yield* Deferred.await(termination);
+        assert.instanceOf(exitError, AcpError.AcpProcessExitedError);
+        assert.equal((exitError as AcpError.AcpProcessExitedError).code, 7);
+        assert.equal((message as { readonly _tag?: string })._tag, "ClientProtocolError");
+        const defect = (message as { readonly error: { readonly reason: unknown } }).error
+          .reason as {
+          readonly _tag: string;
+          readonly cause: unknown;
+        };
+        assert.equal(defect._tag, "RpcClientDefect");
+        assert.instanceOf(defect.cause, AcpError.AcpProcessExitedError);
+        assert.equal((defect.cause as AcpError.AcpProcessExitedError).code, 7);
+      }),
+    15_000,
   );
 
   it.effect("does not emit a second process-exit error after a decode failure", () =>

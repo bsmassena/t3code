@@ -19,10 +19,6 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.ts");
 
-function shellSingleQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
 const CursorTextGenerationTestLayer = CursorTextGenerationLive.pipe(
   Layer.provideMerge(ServerSettingsService.layerTest()),
   Layer.provideMerge(
@@ -35,20 +31,45 @@ const CursorTextGenerationTestLayer = CursorTextGenerationLive.pipe(
 
 function makeAcpAgentWrapper(dir: string, env: Record<string, string>): string {
   const binDir = path.join(dir, "bin");
-  const agentPath = path.join(binDir, "agent");
+  const agentPath = path.join(binDir, process.platform === "win32" ? "agent.cmd" : "agent");
+  const scriptPath = path.join(binDir, "fake-agent-wrapper.cjs");
   mkdirSync(binDir, { recursive: true });
   writeFileSync(
+    scriptPath,
+    `const { spawn } = require("node:child_process");
+const env = { ...process.env, ...${JSON.stringify(env)} };
+const args = process.argv.slice(2);
+if (args[0] !== "acp") {
+  process.stderr.write(\`unexpected args: \${args.join(" ")}\\n\`);
+  process.exit(11);
+}
+const child = spawn("bun", [${JSON.stringify(mockAgentPath)}, ...args.slice(1)], {
+  env,
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
+const logExit = (value) => {
+  if (env.T3_ACP_EXIT_LOG_PATH) {
+    require("node:fs").appendFileSync(env.T3_ACP_EXIT_LOG_PATH, value + "\\n");
+  }
+};
+process.on("SIGTERM", () => {
+  logExit("SIGTERM");
+  child.kill("SIGTERM");
+});
+child.on("exit", (code, signal) => {
+  logExit(signal ?? ("exit:" + (code ?? 0)));
+  if (signal) process.kill(process.pid, signal);
+  else process.exit(code ?? 0);
+});
+`,
+    "utf8",
+  );
+  writeFileSync(
     agentPath,
-    [
-      "#!/bin/sh",
-      ...Object.entries(env).map(([key, value]) => `export ${key}=${shellSingleQuote(value)}`),
-      'if [ "$1" != "acp" ]; then',
-      '  printf "%s\\n" "unexpected args: $*" >&2',
-      "  exit 11",
-      "fi",
-      `exec bun ${JSON.stringify(mockAgentPath)}`,
-      "",
-    ].join("\n"),
+    process.platform === "win32"
+      ? `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`
+      : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(scriptPath)} "$@"\n`,
     "utf8",
   );
   chmodSync(agentPath, 0o755);
@@ -114,6 +135,8 @@ function waitForFileContent(path: string): Effect.Effect<string> {
 }
 
 it.layer(CursorTextGenerationTestLayer)("CursorTextGenerationLive", (it) => {
+  const acpExitSignalTest = process.platform === "win32" ? it.effect.skip : it.effect;
+
   it.effect("uses ACP model config options instead of raw CLI model ids", () => {
     const requestLogDir = mkdtempSync(path.join(os.tmpdir(), "t3code-cursor-text-log-"));
     const requestLogPath = path.join(requestLogDir, "requests.ndjson");
@@ -258,7 +281,7 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGenerationLive", (it) => {
     ),
   );
 
-  it.effect("closes the ACP child process after text generation completes", () => {
+  acpExitSignalTest("closes the ACP child process after text generation completes", () => {
     const exitLogDir = mkdtempSync(path.join(os.tmpdir(), "t3code-cursor-text-exit-log-"));
     const exitLogPath = path.join(exitLogDir, "exit.log");
 

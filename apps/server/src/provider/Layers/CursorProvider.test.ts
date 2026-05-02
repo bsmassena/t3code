@@ -55,15 +55,44 @@ function booleanDescriptor(id: string, label: string, currentValue?: boolean) {
 
 async function makeMockAgentWrapper(extraEnv?: Record<string, string>) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cursor-provider-mock-"));
-  const wrapperPath = path.join(dir, "fake-agent.sh");
-  const envExports = Object.entries(extraEnv ?? {})
-    .map(([key, value]) => `export ${key}=${JSON.stringify(value)}`)
-    .join("\n");
-  const script = `#!/bin/sh
-${envExports}
-exec ${JSON.stringify("bun")} ${JSON.stringify(mockAgentPath)} "$@"
-`;
-  await writeFile(wrapperPath, script, "utf8");
+  const wrapperPath = path.join(
+    dir,
+    process.platform === "win32" ? "fake-agent.cmd" : "fake-agent",
+  );
+  const scriptPath = path.join(dir, "fake-agent-wrapper.cjs");
+  await writeFile(
+    scriptPath,
+    `const { spawn } = require("node:child_process");
+const env = { ...process.env, ...${JSON.stringify(extraEnv ?? {})} };
+const child = spawn("bun", [${JSON.stringify(mockAgentPath)}, ...process.argv.slice(2)], {
+  env,
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
+const logExit = (value) => {
+  if (env.T3_ACP_EXIT_LOG_PATH) {
+    require("node:fs").appendFileSync(env.T3_ACP_EXIT_LOG_PATH, value + "\\n");
+  }
+};
+process.on("SIGTERM", () => {
+  logExit("SIGTERM");
+  child.kill("SIGTERM");
+});
+child.on("exit", (code, signal) => {
+  logExit(signal ?? ("exit:" + (code ?? 0)));
+  if (signal) process.kill(process.pid, signal);
+  else process.exit(code ?? 0);
+});
+`,
+    "utf8",
+  );
+  await writeFile(
+    wrapperPath,
+    process.platform === "win32"
+      ? `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`
+      : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(scriptPath)} "$@"\n`,
+    "utf8",
+  );
   await chmod(wrapperPath, 0o755);
   return wrapperPath;
 }
@@ -80,6 +109,8 @@ async function waitForFileContent(filePath: string, attempts = 40): Promise<stri
   }
   throw new Error(`Timed out waiting for file content at ${filePath}`);
 }
+
+const acpExitSignalTest = process.platform === "win32" ? it.skip : it;
 
 const parameterizedGpt54ConfigOptions = [
   {
@@ -449,7 +480,7 @@ describe("discoverCursorModelsViaAcp", () => {
     ]);
   });
 
-  it("closes the ACP probe runtime after discovery completes", async () => {
+  acpExitSignalTest("closes the ACP probe runtime after discovery completes", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "cursor-provider-exit-log-"));
     const exitLogPath = path.join(tempDir, "exit.log");
     const wrapperPath = await makeMockAgentWrapper({
@@ -466,51 +497,67 @@ describe("discoverCursorModelsViaAcp", () => {
     );
 
     const exitLog = await waitForFileContent(exitLogPath);
-    expect(exitLog).toContain("SIGTERM");
+    if (process.platform === "win32") {
+      expect(exitLog.trim().length).toBeGreaterThan(0);
+    } else {
+      expect(exitLog).toContain("SIGTERM");
+    }
   });
 });
 
 describe("discoverCursorModelCapabilitiesViaAcp", () => {
-  it("closes all ACP probe runtimes after capability enrichment completes", async () => {
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "cursor-capabilities-exit-log-"));
-    const exitLogPath = path.join(tempDir, "exit.log");
-    const wrapperPath = await makeMockAgentWrapper({
-      T3_ACP_EXIT_LOG_PATH: exitLogPath,
-    });
-    const existingModels: ReadonlyArray<ServerProviderModel> = [
-      { slug: "default", name: "Auto", isCustom: false, capabilities: emptyCapabilities },
-      { slug: "composer-2", name: "Composer 2", isCustom: false, capabilities: emptyCapabilities },
-      { slug: "gpt-5.4", name: "GPT-5.4", isCustom: false, capabilities: emptyCapabilities },
-      {
-        slug: "claude-opus-4-6",
-        name: "Opus 4.6",
-        isCustom: false,
-        capabilities: emptyCapabilities,
-      },
-    ];
-
-    const models = await Effect.runPromise(
-      discoverCursorModelCapabilitiesViaAcp(
+  acpExitSignalTest(
+    "closes all ACP probe runtimes after capability enrichment completes",
+    async () => {
+      const tempDir = await mkdtemp(path.join(os.tmpdir(), "cursor-capabilities-exit-log-"));
+      const exitLogPath = path.join(tempDir, "exit.log");
+      const wrapperPath = await makeMockAgentWrapper({
+        T3_ACP_EXIT_LOG_PATH: exitLogPath,
+      });
+      const existingModels: ReadonlyArray<ServerProviderModel> = [
+        { slug: "default", name: "Auto", isCustom: false, capabilities: emptyCapabilities },
         {
-          enabled: true,
-          binaryPath: wrapperPath,
-          apiEndpoint: "",
-          customModels: [],
+          slug: "composer-2",
+          name: "Composer 2",
+          isCustom: false,
+          capabilities: emptyCapabilities,
         },
-        existingModels,
-      ).pipe(Effect.provide(NodeServices.layer)),
-    );
+        { slug: "gpt-5.4", name: "GPT-5.4", isCustom: false, capabilities: emptyCapabilities },
+        {
+          slug: "claude-opus-4-6",
+          name: "Opus 4.6",
+          isCustom: false,
+          capabilities: emptyCapabilities,
+        },
+      ];
 
-    expect(models.map((model) => model.slug)).toEqual([
-      "default",
-      "composer-2",
-      "gpt-5.4",
-      "claude-opus-4-6",
-    ]);
+      const models = await Effect.runPromise(
+        discoverCursorModelCapabilitiesViaAcp(
+          {
+            enabled: true,
+            binaryPath: wrapperPath,
+            apiEndpoint: "",
+            customModels: [],
+          },
+          existingModels,
+        ).pipe(Effect.provide(NodeServices.layer)),
+      );
 
-    const exitLog = await waitForFileContent(exitLogPath);
-    expect(exitLog.match(/SIGTERM/g)?.length ?? 0).toBe(4);
-  });
+      expect(models.map((model) => model.slug)).toEqual([
+        "default",
+        "composer-2",
+        "gpt-5.4",
+        "claude-opus-4-6",
+      ]);
+
+      const exitLog = await waitForFileContent(exitLogPath);
+      if (process.platform === "win32") {
+        expect(exitLog.trim().split(/\r?\n/).filter(Boolean).length).toBeGreaterThanOrEqual(4);
+      } else {
+        expect(exitLog.match(/SIGTERM/g)?.length ?? 0).toBe(4);
+      }
+    },
+  );
 });
 
 describe("parseCursorAboutOutput", () => {

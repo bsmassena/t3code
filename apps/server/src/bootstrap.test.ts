@@ -1,6 +1,5 @@
 import * as NFS from "node:fs";
 import * as path from "node:path";
-import { execFileSync, spawn } from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { FileSystem, Schema } from "effect";
@@ -58,10 +57,13 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
         })}\n`,
       );
 
-      const fd = yield* Effect.acquireRelease(
-        Effect.sync(() => NFS.openSync(filePath, "r")),
-        (fd) => Effect.sync(() => NFS.closeSync(fd)),
-      );
+      const fd =
+        process.platform === "win32"
+          ? NFS.openSync(filePath, "r")
+          : yield* Effect.acquireRelease(
+              Effect.sync(() => NFS.openSync(filePath, "r")),
+              (fd) => Effect.sync(() => NFS.closeSync(fd)),
+            );
 
       const payload = yield* readBootstrapEnvelope(TestEnvelopeSchema, fd, { timeoutMs: 100 });
       assertSome(payload, {
@@ -102,7 +104,9 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
   it.effect("returns none when the fd is unavailable", () =>
     Effect.gen(function* () {
-      const fd = NFS.openSync("/dev/null", "r");
+      const fs = yield* FileSystem.FileSystem;
+      const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
+      const fd = NFS.openSync(filePath, "r");
       NFS.closeSync(fd);
 
       const payload = yield* readBootstrapEnvelope(TestEnvelopeSchema, fd, { timeoutMs: 100 });
@@ -110,11 +114,13 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
     }),
   );
 
-  it.effect("returns none when the bootstrap read times out before any value arrives", () =>
+  const timeoutTest = process.platform === "win32" ? it.effect.skip : it.effect;
+  timeoutTest("returns none when the bootstrap read times out before any value arrives", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-bootstrap-" });
       const fifoPath = path.join(tempDir, "bootstrap.pipe");
+      const { execFileSync, spawn } = yield* Effect.promise(() => import("node:child_process"));
 
       yield* Effect.sync(() => execFileSync("mkfifo", [fifoPath]));
 
