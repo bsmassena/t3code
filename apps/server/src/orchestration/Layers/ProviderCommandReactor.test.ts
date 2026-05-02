@@ -642,6 +642,15 @@ describe("ProviderCommandReactor", () => {
       message: "Add a safer reconnect backoff.",
     });
     expect(harness.refreshStatus.mock.calls[0]?.[0]).toBe("/tmp/provider-project-worktree");
+    expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
+      cwd: "/tmp/provider-project-worktree",
+      oldBranch: "t3code/1234abcd",
+      newBranch: "feature/gpt-5-4-mini",
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(thread?.branch).toBe("feature/gpt-5-4-mini");
   });
 
   it("forwards codex model options through session start and turn send", async () => {

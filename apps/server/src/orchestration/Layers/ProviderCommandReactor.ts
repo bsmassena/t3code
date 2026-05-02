@@ -11,7 +11,11 @@ import {
   type RuntimeMode,
   type TurnId,
 } from "@t3tools/contracts";
-import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shared/git";
+import {
+  isTemporaryWorktreeBranch,
+  sanitizeBranchFragment,
+  WORKTREE_BRANCH_PREFIX,
+} from "@t3tools/shared/git";
 import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
@@ -131,23 +135,13 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
   const normalized = raw
     .trim()
     .toLowerCase()
-    .replace(/^refs\/heads\//, "")
-    .replace(/['"`]/g, "");
+    .replace(/^refs\/heads\//, "");
 
   const withoutPrefix = normalized.startsWith(`${WORKTREE_BRANCH_PREFIX}/`)
     ? normalized.slice(`${WORKTREE_BRANCH_PREFIX}/`.length)
     : normalized;
 
-  const branchFragment = withoutPrefix
-    .replace(/[^a-z0-9/_-]+/g, "-")
-    .replace(/\/+/g, "/")
-    .replace(/-+/g, "-")
-    .replace(/^[./_-]+|[./_-]+$/g, "")
-    .slice(0, 64)
-    .replace(/[./_-]+$/g, "");
-
-  const safeFragment = branchFragment.length > 0 ? branchFragment : "update";
-  return `${WORKTREE_BRANCH_PREFIX}/${safeFragment}`;
+  return sanitizeBranchFragment(withoutPrefix);
 }
 
 const make = Effect.gen(function* () {
