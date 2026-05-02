@@ -45,18 +45,11 @@ function replaceClientSettingsSnapshot(settings: ClientSettings): void {
   emitClientSettingsChange();
 }
 
-function normalizeHydratedClientSettings(settings: ClientSettings): ClientSettings {
-  if (
-    settings.sidebarProjectGroupingMode === "separate" &&
-    Object.keys(settings.sidebarProjectManualGroups).length > 0
-  ) {
-    return {
-      ...settings,
-      sidebarProjectGroupingMode: "manual",
-    };
-  }
-
-  return settings;
+function mergePersistedClientSettings(settings: Partial<ClientSettings>): ClientSettings {
+  return {
+    ...DEFAULT_CLIENT_SETTINGS,
+    ...settings,
+  };
 }
 
 function subscribeClientSettings(listener: () => void): () => void {
@@ -79,19 +72,7 @@ async function hydrateClientSettings(): Promise<void> {
     try {
       const persistedSettings = await ensureLocalApi().persistence.getClientSettings();
       if (persistedSettings) {
-        const mergedSettings = {
-          ...DEFAULT_CLIENT_SETTINGS,
-          ...persistedSettings,
-        };
-        const nextSettings = normalizeHydratedClientSettings(mergedSettings);
-        replaceClientSettingsSnapshot(nextSettings);
-        if (nextSettings.sidebarProjectGroupingMode !== mergedSettings.sidebarProjectGroupingMode) {
-          void ensureLocalApi()
-            .persistence.setClientSettings(nextSettings)
-            .catch((error) => {
-              console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} migrate failed`, error);
-            });
-        }
+        replaceClientSettingsSnapshot(mergePersistedClientSettings(persistedSettings));
       }
     } catch (error) {
       console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, error);
@@ -219,4 +200,10 @@ export function __resetClientSettingsPersistenceForTests(): void {
   clientSettingsHydrated = false;
   clientSettingsHydrationPromise = null;
   clientSettingsListeners.clear();
+}
+
+export function __mergePersistedClientSettingsForTests(
+  settings: Partial<ClientSettings>,
+): ClientSettings {
+  return mergePersistedClientSettings(settings);
 }
