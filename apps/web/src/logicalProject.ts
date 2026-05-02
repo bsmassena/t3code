@@ -174,7 +174,7 @@ export function deriveLogicalProjectKey(
   },
 ): string {
   const groupingMode = options?.groupingMode ?? "repository";
-  if (groupingMode === "separate") {
+  if (groupingMode === "manual" || groupingMode === "separate") {
     return derivePhysicalProjectKey(project);
   }
 
@@ -189,13 +189,16 @@ export function deriveLogicalProjectKeyFromSettings(
   project: Pick<Project, "environmentId" | "id" | "cwd" | "repositoryIdentity">,
   settings: ProjectGroupingSettings,
 ): string {
-  const manualGroupLabel = resolveManualProjectGroupLabel(project, settings);
-  if (manualGroupLabel) {
-    return deriveManualProjectGroupKey(manualGroupLabel);
+  const groupingMode = resolveProjectGroupingMode(project, settings);
+  if (groupingMode === "manual") {
+    const manualGroupLabel = resolveManualProjectGroupLabel(project, settings);
+    if (manualGroupLabel) {
+      return deriveManualProjectGroupKey(manualGroupLabel);
+    }
   }
 
   return deriveLogicalProjectKey(project, {
-    groupingMode: resolveProjectGroupingMode(project, settings),
+    groupingMode,
   });
 }
 

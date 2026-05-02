@@ -45,6 +45,20 @@ function replaceClientSettingsSnapshot(settings: ClientSettings): void {
   emitClientSettingsChange();
 }
 
+function normalizeHydratedClientSettings(settings: ClientSettings): ClientSettings {
+  if (
+    settings.sidebarProjectGroupingMode === "separate" &&
+    Object.keys(settings.sidebarProjectManualGroups).length > 0
+  ) {
+    return {
+      ...settings,
+      sidebarProjectGroupingMode: "manual",
+    };
+  }
+
+  return settings;
+}
+
 function subscribeClientSettings(listener: () => void): () => void {
   clientSettingsListeners.add(listener);
   void hydrateClientSettings();
@@ -65,7 +79,19 @@ async function hydrateClientSettings(): Promise<void> {
     try {
       const persistedSettings = await ensureLocalApi().persistence.getClientSettings();
       if (persistedSettings) {
-        replaceClientSettingsSnapshot({ ...DEFAULT_CLIENT_SETTINGS, ...persistedSettings });
+        const mergedSettings = {
+          ...DEFAULT_CLIENT_SETTINGS,
+          ...persistedSettings,
+        };
+        const nextSettings = normalizeHydratedClientSettings(mergedSettings);
+        replaceClientSettingsSnapshot(nextSettings);
+        if (nextSettings.sidebarProjectGroupingMode !== mergedSettings.sidebarProjectGroupingMode) {
+          void ensureLocalApi()
+            .persistence.setClientSettings(nextSettings)
+            .catch((error) => {
+              console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} migrate failed`, error);
+            });
+        }
       }
     } catch (error) {
       console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, error);

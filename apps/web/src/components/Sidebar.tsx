@@ -204,12 +204,14 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<string, string>();
 const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> = {
+  manual: "Manual grouping",
   repository: "Group by repository",
   parent_directory: "Group by parent directory",
   repository_path: "Group by repository path",
   separate: "Keep separate",
 };
 const PROJECT_GROUPING_MODE_OPTIONS = [
+  "manual",
   "repository",
   "parent_directory",
   "repository_path",
@@ -230,6 +232,8 @@ function formatProjectMemberActionLabel(
 
 function projectGroupingModeDescription(mode: SidebarProjectGroupingMode): string {
   switch (mode) {
+    case "manual":
+      return "Only projects with the same manual group label share one sidebar row.";
     case "repository":
       return "Projects from the same repository share one sidebar row.";
     case "parent_directory":
@@ -1920,6 +1924,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       nextManualGroups[overrideKey] = trimmedManualGroupName;
     }
     updateSettings({
+      ...(trimmedManualGroupName.length > 0 ? { sidebarProjectGroupingMode: "manual" } : {}),
       sidebarProjectManualGroups: nextManualGroups,
       sidebarProjectGroupingOverrides: nextOverrides,
     });
@@ -2222,8 +2227,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                   onChange={(event) => setProjectManualGroupName(event.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Projects with the same manual group share one sidebar row regardless of the
-                  automatic rule below.
+                  Projects with the same manual group share one sidebar row when manual grouping is
+                  active.
                 </p>
               </div>
               <div className="grid gap-1.5">

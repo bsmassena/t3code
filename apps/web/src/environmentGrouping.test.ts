@@ -461,7 +461,7 @@ describe("environment grouping", () => {
       ).toBe(derivePhysicalProjectKey(project));
     });
 
-    it("prefers a manual project group over repository-based grouping", () => {
+    it("uses a manual project group when manual grouping is active", () => {
       const local = makeProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
@@ -478,6 +478,7 @@ describe("environment grouping", () => {
       expect(
         deriveLogicalProjectKeyFromSettings(local, {
           ...DEFAULT_GROUPING_SETTINGS,
+          sidebarProjectGroupingMode: "manual",
           sidebarProjectManualGroups: {
             [derivePhysicalProjectKey(local)]: "Client work",
             [derivePhysicalProjectKey(remote)]: "Client work",
@@ -486,12 +487,47 @@ describe("environment grouping", () => {
       ).toBe(
         deriveLogicalProjectKeyFromSettings(remote, {
           ...DEFAULT_GROUPING_SETTINGS,
+          sidebarProjectGroupingMode: "manual",
           sidebarProjectManualGroups: {
             [derivePhysicalProjectKey(local)]: "Client work",
             [derivePhysicalProjectKey(remote)]: "Client work",
           },
         }),
       );
+    });
+
+    it("ignores saved manual groups when another grouping mode is active", () => {
+      const local = makeProject({
+        id: sharedProjectPrimaryId,
+        environmentId: primaryEnvId,
+        name: "frontend",
+        cwd: "/workspace/client-a",
+      });
+      const remote = makeProject({
+        id: remoteOnlyProjectId,
+        environmentId: remoteEnvId,
+        name: "backend",
+        cwd: "/workspace/client-b",
+      });
+      const manualGroups = {
+        [derivePhysicalProjectKey(local)]: "Client work",
+        [derivePhysicalProjectKey(remote)]: "Client work",
+      };
+
+      expect(
+        deriveLogicalProjectKeyFromSettings(local, {
+          ...DEFAULT_GROUPING_SETTINGS,
+          sidebarProjectGroupingMode: "separate",
+          sidebarProjectManualGroups: manualGroups,
+        }),
+      ).toBe(derivePhysicalProjectKey(local));
+      expect(
+        deriveLogicalProjectKeyFromSettings(remote, {
+          ...DEFAULT_GROUPING_SETTINGS,
+          sidebarProjectGroupingMode: "separate",
+          sidebarProjectManualGroups: manualGroups,
+        }),
+      ).toBe(derivePhysicalProjectKey(remote));
     });
   });
 
@@ -707,6 +743,7 @@ describe("environment grouping", () => {
         projects: [projectA, projectB],
         settings: {
           ...DEFAULT_GROUPING_SETTINGS,
+          sidebarProjectGroupingMode: "manual",
           sidebarProjectManualGroups: {
             [derivePhysicalProjectKey(projectA)]: "Client work",
             [derivePhysicalProjectKey(projectB)]: "Client work",
