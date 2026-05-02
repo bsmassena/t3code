@@ -687,7 +687,7 @@ export default function ChatView(props: ChatViewProps) {
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
-  const [workspaceEditorOpen, setWorkspaceEditorOpen] = useState(true);
+  const [workspaceEditorOpen, setWorkspaceEditorOpen] = useState(false);
   const [workspaceEditorActiveView, setWorkspaceEditorActiveView] = useState<"project" | "git">(
     "project",
   );
@@ -2088,6 +2088,9 @@ export default function ChatView(props: ChatViewProps) {
 
   useEffect(() => {
     setPullRequestDialogState(null);
+    setWorkspaceEditorOpen(false);
+    setWorkspaceEditorOpenFileRequest(null);
+    setWorkspaceEditorViewRequest(null);
     isAtEndRef.current = true;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
