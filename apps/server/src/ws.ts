@@ -882,6 +882,46 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "git" },
           ),
+        [WS_METHODS.gitGetWorktreeFileDiff]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitGetWorktreeFileDiff,
+            Effect.all(
+              [
+                git.execute({
+                  operation: "GitCore.worktreeFileDiff.unstaged",
+                  cwd: input.cwd,
+                  args: [
+                    "diff",
+                    "--no-ext-diff",
+                    "--binary",
+                    ...(input.fullContext ? ["--unified=999999"] : []),
+                    "--",
+                    input.relativePath,
+                  ],
+                }),
+                git.execute({
+                  operation: "GitCore.worktreeFileDiff.staged",
+                  cwd: input.cwd,
+                  args: [
+                    "diff",
+                    "--cached",
+                    "--no-ext-diff",
+                    "--binary",
+                    ...(input.fullContext ? ["--unified=999999"] : []),
+                    "--",
+                    input.relativePath,
+                  ],
+                }),
+              ],
+              { concurrency: "unbounded" },
+            ).pipe(
+              Effect.map(([unstaged, staged]) => ({
+                relativePath: input.relativePath,
+                patch: [staged.stdout.trim(), unstaged.stdout.trim()].filter(Boolean).join("\n"),
+              })),
+            ),
+            { "rpc.aggregate": "git" },
+          ),
         [WS_METHODS.gitRunStackedAction]: (input) =>
           observeRpcStream(
             WS_METHODS.gitRunStackedAction,

@@ -189,6 +189,14 @@ function parsePorcelainPath(line: string): string | null {
   return filePath.length > 0 ? filePath : null;
 }
 
+function countTextLines(contents: string): number {
+  if (contents.length === 0) return 0;
+  const normalized = contents.replace(/\r\n/g, "\n");
+  return normalized.endsWith("\n")
+    ? normalized.split("\n").length - 1
+    : normalized.split("\n").length;
+}
+
 function parseBranchLine(line: string): { name: string; current: boolean } | null {
   const trimmed = line.trim();
   if (trimmed.length === 0) return null;
@@ -1253,6 +1261,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     let behindCount = 0;
     let hasWorkingTreeChanges = false;
     const changedFilesWithoutNumstat = new Set<string>();
+    const untrackedFiles = new Set<string>();
 
     for (const line of statusStdout.split(/\r?\n/g)) {
       if (line.startsWith("# branch.head ")) {
@@ -1275,7 +1284,12 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       if (line.trim().length > 0 && !line.startsWith("#")) {
         hasWorkingTreeChanges = true;
         const pathValue = parsePorcelainPath(line);
-        if (pathValue) changedFilesWithoutNumstat.add(pathValue);
+        if (pathValue) {
+          changedFilesWithoutNumstat.add(pathValue);
+          if (line.startsWith("? ")) {
+            untrackedFiles.add(pathValue);
+          }
+        }
       }
     }
 
@@ -1302,13 +1316,29 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       .map(([filePath, stat]) => {
         insertions += stat.insertions;
         deletions += stat.deletions;
-        return { path: filePath, insertions: stat.insertions, deletions: stat.deletions };
+        return {
+          path: filePath,
+          insertions: stat.insertions,
+          deletions: stat.deletions,
+          tracked: true,
+        };
       })
       .toSorted((a, b) => a.path.localeCompare(b.path));
 
     for (const filePath of changedFilesWithoutNumstat) {
       if (fileStatMap.has(filePath)) continue;
-      files.push({ path: filePath, insertions: 0, deletions: 0 });
+      const insertions = untrackedFiles.has(filePath)
+        ? yield* fileSystem.readFileString(path.join(cwd, filePath)).pipe(
+            Effect.map(countTextLines),
+            Effect.catch(() => Effect.succeed(0)),
+          )
+        : 0;
+      files.push({
+        path: filePath,
+        insertions,
+        deletions: 0,
+        tracked: !untrackedFiles.has(filePath),
+      });
     }
     files.sort((a, b) => a.path.localeCompare(b.path));
 

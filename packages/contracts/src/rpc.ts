@@ -33,6 +33,8 @@ import {
   GitStatusInput,
   GitStatusResult,
   GitStatusStreamEvent,
+  GitWorktreeFileDiffInput,
+  GitWorktreeFileDiffResult,
 } from "./git.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
@@ -101,6 +103,7 @@ export const WS_METHODS = {
 
   // Git methods
   gitPull: "git.pull",
+  gitGetWorktreeFileDiff: "git.getWorktreeFileDiff",
   gitRefreshStatus: "git.refreshStatus",
   gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
@@ -216,6 +219,12 @@ export const WsGitRefreshStatusRpc = Rpc.make(WS_METHODS.gitRefreshStatus, {
   payload: GitStatusInput,
   success: GitStatusResult,
   error: GitManagerServiceError,
+});
+
+export const WsGitGetWorktreeFileDiffRpc = Rpc.make(WS_METHODS.gitGetWorktreeFileDiff, {
+  payload: GitWorktreeFileDiffInput,
+  success: GitWorktreeFileDiffResult,
+  error: GitCommandError,
 });
 
 export const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction, {
@@ -389,6 +398,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsFilesystemBrowseRpc,
   WsSubscribeGitStatusRpc,
   WsGitPullRpc,
+  WsGitGetWorktreeFileDiffRpc,
   WsGitRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,

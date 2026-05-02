@@ -62,7 +62,9 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
-  { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+  { key: "mod+d", command: "workspaceEditor.gitView", when: "!terminalFocus" },
+  { key: "mod+e", command: "workspaceEditor.projectView", when: "!terminalFocus" },
+  { key: "mod+shift+d", command: "diff.toggle", when: "!terminalFocus" },
   { key: "mod+k", command: "commandPalette.toggle", when: "!terminalFocus" },
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
@@ -81,6 +83,18 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
     when: "modelPickerOpen",
   })),
 ];
+
+const LEGACY_DIFF_TOGGLE_DEFAULT_KEYBINDING: KeybindingRule = {
+  key: "mod+d",
+  command: "diff.toggle",
+  when: "!terminalFocus",
+};
+
+const CURRENT_DIFF_TOGGLE_DEFAULT_KEYBINDING: KeybindingRule = {
+  key: "mod+shift+d",
+  command: "diff.toggle",
+  when: "!terminalFocus",
+};
 
 function normalizeKeyToken(token: string): string {
   if (token === "space") return " ";
@@ -740,7 +754,15 @@ const makeKeybindings = Effect.gen(function* () {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }
-      const customConfig = runtimeConfig.keybindings;
+      let customConfig = runtimeConfig.keybindings;
+      let migratedLegacyDiffToggle = false;
+      customConfig = customConfig.map((entry) => {
+        if (isSameKeybindingRule(entry, LEGACY_DIFF_TOGGLE_DEFAULT_KEYBINDING)) {
+          migratedLegacyDiffToggle = true;
+          return CURRENT_DIFF_TOGGLE_DEFAULT_KEYBINDING;
+        }
+        return entry;
+      });
       const existingCommands = new Set(customConfig.map((entry) => entry.command));
       const missingDefaults: KeybindingRule[] = [];
       const shortcutConflictWarnings: Array<{
@@ -777,7 +799,7 @@ const makeKeybindings = Effect.gen(function* () {
           reason: "shortcut context already used by existing rule",
         });
       }
-      if (missingDefaults.length === 0) {
+      if (missingDefaults.length === 0 && !migratedLegacyDiffToggle) {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }

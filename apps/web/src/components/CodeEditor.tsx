@@ -91,8 +91,12 @@ const editorTheme = EditorView.theme({
     backgroundColor: "var(--muted)",
     color: "var(--foreground)",
   },
-  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-    backgroundColor: "color-mix(in srgb, var(--primary) 28%, transparent)",
+  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground":
+    {
+      backgroundColor: "color-mix(in srgb, var(--primary) 38%, transparent) !important",
+    },
+  ".cm-content ::selection": {
+    backgroundColor: "color-mix(in srgb, var(--primary) 38%, transparent) !important",
   },
   "&.cm-focused": {
     outline: "none",

@@ -110,6 +110,13 @@ export const GitStatusInput = Schema.Struct({
 });
 export type GitStatusInput = typeof GitStatusInput.Type;
 
+export const GitWorktreeFileDiffInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  relativePath: TrimmedNonEmptyStringSchema,
+  fullContext: Schema.optional(Schema.Boolean),
+});
+export type GitWorktreeFileDiffInput = typeof GitWorktreeFileDiffInput.Type;
+
 export const GitPullInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
 });
@@ -214,6 +221,7 @@ const GitStatusLocalShape = {
         path: TrimmedNonEmptyStringSchema,
         insertions: NonNegativeInt,
         deletions: NonNegativeInt,
+        tracked: Schema.Boolean,
       }),
     ),
     insertions: NonNegativeInt,
@@ -320,6 +328,12 @@ export const GitPullResult = Schema.Struct({
   upstreamBranch: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
 });
 export type GitPullResult = typeof GitPullResult.Type;
+
+export const GitWorktreeFileDiffResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyStringSchema,
+  patch: Schema.String,
+});
+export type GitWorktreeFileDiffResult = typeof GitWorktreeFileDiffResult.Type;
 
 // RPC / domain errors
 export class GitCommandError extends Schema.TaggedErrorClass<GitCommandError>()("GitCommandError", {

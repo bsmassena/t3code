@@ -103,7 +103,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { ChevronDownIcon } from "lucide-react";
-import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
@@ -117,6 +117,7 @@ import { getProviderModelCapabilities, resolveSelectableProvider } from "../prov
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { isOpenWorkspaceFileEvent, OPEN_WORKSPACE_FILE_EVENT } from "../workspaceEditorEvents";
 import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
 import {
   useSavedEnvironmentRegistryStore,
@@ -687,8 +688,15 @@ export default function ChatView(props: ChatViewProps) {
     useState<Record<string, number>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [workspaceEditorOpen, setWorkspaceEditorOpen] = useState(true);
+  const [workspaceEditorActiveView, setWorkspaceEditorActiveView] = useState<"project" | "git">(
+    "project",
+  );
   const [workspaceEditorOpenFileRequest, setWorkspaceEditorOpenFileRequest] = useState<{
     readonly relativePath: string;
+    readonly requestId: number;
+  } | null>(null);
+  const [workspaceEditorViewRequest, setWorkspaceEditorViewRequest] = useState<{
+    readonly view: "project" | "git";
     readonly requestId: number;
   } | null>(null);
   const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
@@ -720,6 +728,7 @@ export default function ChatView(props: ChatViewProps) {
   const attachmentPreviewPromotionInFlightByMessageIdRef = useRef<Record<string, true>>({});
   const sendInFlightRef = useRef(false);
   const workspaceEditorOpenFileRequestIdRef = useRef(0);
+  const workspaceEditorViewRequestIdRef = useRef(0);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
 
   const terminalState = useTerminalStateStore((state) =>
@@ -1454,13 +1463,6 @@ export default function ChatView(props: ChatViewProps) {
   );
   const workspaceEditorAvailable =
     activeWorkspaceRoot !== undefined || editorFallbackCwds.some(Boolean);
-  const workspaceEditorToggleShortcutLabel = useMemo(
-    () =>
-      typeof navigator !== "undefined" && isMacPlatform(navigator.platform)
-        ? "\u21e7\u2318E"
-        : "Ctrl+Shift+E",
-    [],
-  );
   const activeTerminalLaunchContext =
     terminalLaunchContext?.threadId === activeThreadId
       ? terminalLaunchContext
@@ -1505,10 +1507,35 @@ export default function ChatView(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
+  const workspaceEditorToggleShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "workspaceEditor.projectView",
+        nonTerminalShortcutLabelOptions,
+      ) ?? "Ctrl+E",
+    [keybindings, nonTerminalShortcutLabelOptions],
+  );
   const toggleWorkspaceEditor = useCallback(() => {
     if (!workspaceEditorAvailable) return;
     setWorkspaceEditorOpen((open) => !open);
   }, [workspaceEditorAvailable]);
+  const openWorkspaceEditorView = useCallback(
+    (view: "project" | "git") => {
+      if (!workspaceEditorAvailable) return;
+      if (workspaceEditorOpen && workspaceEditorActiveView === view) {
+        setWorkspaceEditorOpen(false);
+        return;
+      }
+      workspaceEditorViewRequestIdRef.current += 1;
+      setWorkspaceEditorOpen(true);
+      setWorkspaceEditorViewRequest({
+        view,
+        requestId: workspaceEditorViewRequestIdRef.current,
+      });
+    },
+    [workspaceEditorActiveView, workspaceEditorAvailable, workspaceEditorOpen],
+  );
   const openWorkspaceFileInEditorPanel = useCallback(
     (relativePath: string) => {
       if (!workspaceEditorAvailable) return;
@@ -1521,22 +1548,18 @@ export default function ChatView(props: ChatViewProps) {
     },
     [workspaceEditorAvailable],
   );
-
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!workspaceEditorAvailable) return;
-      if (event.altKey) return;
-      if (!event.shiftKey) return;
-      if (!event.ctrlKey && !event.metaKey) return;
-      if (event.key.toLowerCase() !== "e") return;
-
-      event.preventDefault();
-      setWorkspaceEditorOpen((open) => !open);
+    const handleOpenWorkspaceFile = (event: Event) => {
+      if (!isOpenWorkspaceFileEvent(event)) return;
+      openWorkspaceFileInEditorPanel(event.detail.relativePath);
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [workspaceEditorAvailable]);
+    window.addEventListener(OPEN_WORKSPACE_FILE_EVENT, handleOpenWorkspaceFile);
+    return () => {
+      window.removeEventListener(OPEN_WORKSPACE_FILE_EVENT, handleOpenWorkspaceFile);
+    };
+  }, [openWorkspaceFileInEditorPanel]);
+
   const onToggleDiff = useCallback(() => {
     if (!isServerThread) {
       return;
@@ -2356,6 +2379,20 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "workspaceEditor.projectView") {
+        event.preventDefault();
+        event.stopPropagation();
+        openWorkspaceEditorView("project");
+        return;
+      }
+
+      if (command === "workspaceEditor.gitView") {
+        event.preventDefault();
+        event.stopPropagation();
+        openWorkspaceEditorView("git");
+        return;
+      }
+
       if (command === "modelPicker.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -2385,6 +2422,7 @@ export default function ChatView(props: ChatViewProps) {
     splitTerminal,
     keybindings,
     onToggleDiff,
+    openWorkspaceEditorView,
     toggleTerminalVisibility,
   ]);
 
@@ -3521,7 +3559,9 @@ export default function ChatView(props: ChatViewProps) {
             fallbackCwd={activeProjectCwd}
             fallbackCwds={editorFallbackCwds}
             openFileRequest={workspaceEditorOpenFileRequest}
+            viewRequest={workspaceEditorViewRequest}
             toggleShortcutLabel={workspaceEditorToggleShortcutLabel}
+            onViewChange={setWorkspaceEditorActiveView}
             onClose={() => setWorkspaceEditorOpen(false)}
           />
         ) : null}

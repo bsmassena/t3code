@@ -195,7 +195,31 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("modelPicker.toggle"), "mod+shift+m");
       assert.equal(defaultsByCommand.get("modelPicker.jump.1"), "mod+1");
       assert.equal(defaultsByCommand.get("modelPicker.jump.9"), "mod+9");
+      assert.equal(defaultsByCommand.get("workspaceEditor.gitView"), "mod+d");
+      assert.equal(defaultsByCommand.get("workspaceEditor.projectView"), "mod+e");
+      assert.equal(defaultsByCommand.get("diff.toggle"), "mod+shift+d");
     }),
+  );
+
+  it.effect("migrates the legacy diff toggle default to free mod+d for git view", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      const byCommand = new Map(persisted.map((entry) => [entry.command, entry]));
+
+      assert.equal(byCommand.get("diff.toggle")?.key, "mod+shift+d");
+      assert.equal(byCommand.get("workspaceEditor.gitView")?.key, "mod+d");
+      assert.equal(byCommand.get("workspaceEditor.projectView")?.key, "mod+e");
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
   it.effect("uses defaults in runtime when config is malformed without overriding file", () =>

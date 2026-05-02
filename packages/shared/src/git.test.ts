@@ -107,7 +107,7 @@ describe("applyGitStatusStreamEvent", () => {
       branch: "feature/demo",
       hasWorkingTreeChanges: true,
       workingTree: {
-        files: [{ path: "src/demo.ts", insertions: 1, deletions: 0 }],
+        files: [{ path: "src/demo.ts", insertions: 1, deletions: 0, tracked: true }],
         insertions: 1,
         deletions: 0,
       },
