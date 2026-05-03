@@ -54,6 +54,7 @@ const clientSettings: ClientSettings = {
   confirmThreadDelete: false,
   diffWordWrap: true,
   favorites: [],
+  providerModelPreferences: {},
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectManualGroups: {
     "environment-1:/tmp/project-a": "Client work",

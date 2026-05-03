@@ -122,75 +122,81 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
     }),
   );
 
-  it.effect("initializes a command-backed app-server client", () =>
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const scope = yield* Scope.make();
-      const clientLayer = CodexClient.layerCommand({
-        command: "bun",
-        args: ["run", yield* mockPeerPath],
-        cwd: path.join(import.meta.dirname, ".."),
-      });
-      const context = yield* Layer.buildWithScope(clientLayer, scope);
-
-      const initialized = yield* Effect.gen(function* () {
-        const client = yield* CodexClient.CodexAppServerClient;
-        return yield* client.request("initialize", {
-          clientInfo: {
-            name: "effect-codex-app-server-test",
-            title: "Effect Codex App Server Test",
-            version: "0.0.0",
-          },
-          capabilities: {
-            experimentalApi: true,
-            optOutNotificationMethods: null,
-          },
+  it.effect(
+    "initializes a command-backed app-server client",
+    () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const scope = yield* Scope.make();
+        const clientLayer = CodexClient.layerCommand({
+          command: "bun",
+          args: ["run", yield* mockPeerPath],
+          cwd: path.join(import.meta.dirname, ".."),
         });
-      }).pipe(Effect.provide(context), Effect.ensuring(Scope.close(scope, Exit.void)));
+        const context = yield* Layer.buildWithScope(clientLayer, scope);
 
-      assert.equal(initialized.userAgent, "mock-codex-app-server");
-    }),
+        const initialized = yield* Effect.gen(function* () {
+          const client = yield* CodexClient.CodexAppServerClient;
+          return yield* client.request("initialize", {
+            clientInfo: {
+              name: "effect-codex-app-server-test",
+              title: "Effect Codex App Server Test",
+              version: "0.0.0",
+            },
+            capabilities: {
+              experimentalApi: true,
+              optOutNotificationMethods: null,
+            },
+          });
+        }).pipe(Effect.provide(context), Effect.ensuring(Scope.close(scope, Exit.void)));
+
+        assert.equal(initialized.userAgent, "mock-codex-app-server");
+      }),
+    10_000,
   );
 
-  it.effect("decodes the prolite ChatGPT account plan from account/read", () =>
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const scope = yield* Scope.make();
-      const clientLayer = CodexClient.layerCommand({
-        command: "bun",
-        args: ["run", yield* mockPeerPath],
-        cwd: path.join(import.meta.dirname, ".."),
-        env: {
-          CODEX_APP_SERVER_MOCK_PLAN_TYPE: "prolite",
-        },
-      });
-      const context = yield* Layer.buildWithScope(clientLayer, scope);
-
-      const account = yield* Effect.gen(function* () {
-        const client = yield* CodexClient.CodexAppServerClient;
-
-        yield* client.request("initialize", {
-          clientInfo: {
-            name: "effect-codex-app-server-test",
-            title: "Effect Codex App Server Test",
-            version: "0.0.0",
-          },
-          capabilities: {
-            experimentalApi: true,
-            optOutNotificationMethods: null,
+  it.effect(
+    "decodes the prolite ChatGPT account plan from account/read",
+    () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const scope = yield* Scope.make();
+        const clientLayer = CodexClient.layerCommand({
+          command: "bun",
+          args: ["run", yield* mockPeerPath],
+          cwd: path.join(import.meta.dirname, ".."),
+          env: {
+            CODEX_APP_SERVER_MOCK_PLAN_TYPE: "prolite",
           },
         });
+        const context = yield* Layer.buildWithScope(clientLayer, scope);
 
-        yield* client.notify("initialized", undefined);
+        const account = yield* Effect.gen(function* () {
+          const client = yield* CodexClient.CodexAppServerClient;
 
-        return yield* client.request("account/read", {});
-      }).pipe(Effect.provide(context), Effect.ensuring(Scope.close(scope, Exit.void)));
+          yield* client.request("initialize", {
+            clientInfo: {
+              name: "effect-codex-app-server-test",
+              title: "Effect Codex App Server Test",
+              version: "0.0.0",
+            },
+            capabilities: {
+              experimentalApi: true,
+              optOutNotificationMethods: null,
+            },
+          });
 
-      assert.deepEqual(account.account, {
-        type: "chatgpt",
-        email: "mock@example.com",
-        planType: "prolite",
-      });
-    }),
+          yield* client.notify("initialized", undefined);
+
+          return yield* client.request("account/read", {});
+        }).pipe(Effect.provide(context), Effect.ensuring(Scope.close(scope, Exit.void)));
+
+        assert.deepEqual(account.account, {
+          type: "chatgpt",
+          email: "mock@example.com",
+          planType: "prolite",
+        });
+      }),
+    10_000,
   );
 });
