@@ -619,6 +619,7 @@ export function WorkspaceEditorPanel({
 
   const saveOpenFile = useCallback(async () => {
     if (!effectiveCwd || !openFile || !dirty) return;
+    if (openFile.loading || openFile.saving) return;
     const api = readEnvironmentApi(environmentId);
     if (!api) {
       toastManager.add({ type: "error", title: "Environment API is unavailable." });
@@ -982,6 +983,7 @@ export function WorkspaceEditorPanel({
                 path={openFile.path}
                 value={openFile.draftContents}
                 disabled={openFile.saving}
+                onSave={saveOpenFile}
                 onChange={(value) =>
                   setOpenFile((previous) =>
                     previous

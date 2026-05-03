@@ -28,6 +28,7 @@ type CodeEditorProps = {
   disabled?: boolean;
   className?: string;
   onChange: (value: string) => void;
+  onSave?: () => void;
 };
 
 const cppExtensions = new Set(["c", "h", "cc", "cpp", "cxx", "hpp", "hxx", "hh"]);
@@ -239,11 +240,13 @@ export function CodeEditor(props: CodeEditorProps) {
   const initialDisabledRef = useRef(props.disabled);
   const valueRef = useRef(props.value);
   const onChangeRef = useRef(props.onChange);
+  const onSaveRef = useRef(props.onSave);
   const languageCompartment = useMemo(() => new Compartment(), []);
   const readOnlyCompartment = useMemo(() => new Compartment(), []);
 
   valueRef.current = props.value;
   onChangeRef.current = props.onChange;
+  onSaveRef.current = props.onSave;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -254,6 +257,16 @@ export function CodeEditor(props: CodeEditorProps) {
       const nextValue = update.state.doc.toString();
       valueRef.current = nextValue;
       onChangeRef.current(nextValue);
+    });
+    const saveKeyHandler = EditorView.domEventHandlers({
+      keydown(event) {
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          onSaveRef.current?.();
+          return true;
+        }
+        return false;
+      },
     });
 
     const view = new EditorView({
@@ -266,6 +279,7 @@ export function CodeEditor(props: CodeEditorProps) {
           syntaxHighlighting(oneDarkHighlightStyle),
           syntaxHighlighting(t3HighlightStyle),
           updateListener,
+          saveKeyHandler,
           languageCompartment.of([]),
           readOnlyCompartment.of([
             EditorState.readOnly.of(Boolean(initialDisabledRef.current)),
