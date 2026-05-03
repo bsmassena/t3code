@@ -55,7 +55,6 @@ import { selectTerminalEventEntries, useTerminalStateStore } from "../terminalSt
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
-const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
 
 function describeUnknownError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -270,15 +269,16 @@ export function resolveTerminalSelectionActionPosition(options: {
   };
 }
 
-export function terminalSelectionActionDelayForClickCount(clickCount: number): number {
-  return clickCount >= 2 ? MULTI_CLICK_SELECTION_ACTION_DELAY_MS : 0;
-}
-
-export function shouldHandleTerminalSelectionMouseUp(
-  selectionGestureActive: boolean,
-  button: number,
+export function isTerminalCopySelectionShortcut(
+  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey" | "type">,
 ): boolean {
-  return selectionGestureActive && button === 0;
+  return (
+    event.type === "keydown" &&
+    event.shiftKey &&
+    !event.altKey &&
+    (event.ctrlKey || event.metaKey) &&
+    event.key.toLowerCase() === "c"
+  );
 }
 
 interface TerminalViewportProps {
@@ -320,7 +320,6 @@ export function TerminalViewport({
   const environmentId = threadRef.environmentId;
   const hasHandledExitRef = useRef(false);
   const selectionPointerRef = useRef<{ x: number; y: number } | null>(null);
-  const selectionGestureActiveRef = useRef(false);
   const selectionActionRequestIdRef = useRef(0);
   const selectionActionOpenRef = useRef(false);
   const selectionActionTimerRef = useRef<number | null>(null);
@@ -412,6 +411,16 @@ export function TerminalViewport({
       };
     };
 
+    const copyTerminalSelection = async (selectionText: string) => {
+      const activeTerminal = terminalRef.current;
+      if (!activeTerminal || selectionText.length === 0) return;
+      try {
+        await navigator.clipboard.writeText(selectionText);
+      } catch (error) {
+        writeSystemMessage(activeTerminal, describeUnknownError(error, "Failed to copy selection"));
+      }
+    };
+
     const showSelectionAction = async () => {
       if (selectionActionOpenRef.current) {
         return;
@@ -425,15 +434,27 @@ export function TerminalViewport({
       selectionActionOpenRef.current = true;
       try {
         const clicked = await localApi.contextMenu.show(
-          [{ id: "add-to-chat", label: "Add to chat" }],
+          [
+            { id: "copy", label: "Copy" },
+            { id: "add-to-chat", label: "Add to chat" },
+          ],
           nextAction.position,
         );
-        if (requestId !== selectionActionRequestIdRef.current || clicked !== "add-to-chat") {
+        if (requestId !== selectionActionRequestIdRef.current) {
           return;
         }
-        handleAddTerminalContext(nextAction.selection);
-        terminalRef.current?.clearSelection();
-        terminalRef.current?.focus();
+        if (clicked === "copy") {
+          void copyTerminalSelection(
+            terminalRef.current?.getSelection() ?? nextAction.selection.text,
+          );
+          terminalRef.current?.focus();
+          return;
+        }
+        if (clicked === "add-to-chat") {
+          handleAddTerminalContext(nextAction.selection);
+          terminalRef.current?.clearSelection();
+          terminalRef.current?.focus();
+        }
       } finally {
         selectionActionOpenRef.current = false;
       }
@@ -450,6 +471,17 @@ export function TerminalViewport({
     };
 
     terminal.attachCustomKeyEventHandler((event) => {
+      if (isTerminalCopySelectionShortcut(event) && terminal.hasSelection()) {
+        const selectionText = terminal.getSelection();
+        if (selectionText.length === 0) {
+          return true;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void copyTerminalSelection(selectionText);
+        return false;
+      }
+
       const currentKeybindings = keybindingsRef.current;
       const options = { context: { terminalFocus: true, terminalOpen: true } };
       if (
@@ -562,30 +594,17 @@ export function TerminalViewport({
       clearSelectionAction();
     });
 
-    const handleMouseUp = (event: MouseEvent) => {
-      const shouldHandle = shouldHandleTerminalSelectionMouseUp(
-        selectionGestureActiveRef.current,
-        event.button,
-      );
-      selectionGestureActiveRef.current = false;
-      if (!shouldHandle) {
+    const handleContextMenu = (event: MouseEvent) => {
+      if (!terminalRef.current?.hasSelection()) {
         return;
       }
-      selectionPointerRef.current = { x: event.clientX, y: event.clientY };
-      const delay = terminalSelectionActionDelayForClickCount(event.detail);
-      selectionActionTimerRef.current = window.setTimeout(() => {
-        selectionActionTimerRef.current = null;
-        window.requestAnimationFrame(() => {
-          void showSelectionAction();
-        });
-      }, delay);
-    };
-    const handlePointerDown = (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
       clearSelectionAction();
-      selectionGestureActiveRef.current = event.button === 0;
+      selectionPointerRef.current = { x: event.clientX, y: event.clientY };
+      void showSelectionAction();
     };
-    window.addEventListener("mouseup", handleMouseUp);
-    mount.addEventListener("pointerdown", handlePointerDown);
+    mount.addEventListener("contextmenu", handleContextMenu);
 
     const themeObserver = new MutationObserver(() => {
       const activeTerminal = terminalRef.current;
@@ -767,8 +786,7 @@ export function TerminalViewport({
       if (selectionActionTimerRef.current !== null) {
         window.clearTimeout(selectionActionTimerRef.current);
       }
-      window.removeEventListener("mouseup", handleMouseUp);
-      mount.removeEventListener("pointerdown", handlePointerDown);
+      mount.removeEventListener("contextmenu", handleContextMenu);
       themeObserver.disconnect();
       terminalRef.current = null;
       fitAddonRef.current = null;

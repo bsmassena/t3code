@@ -1,14 +1,49 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isTerminalCopySelectionShortcut,
   resolveTerminalSelectionActionPosition,
   selectPendingTerminalEventEntries,
   selectTerminalEventEntriesAfterSnapshot,
-  shouldHandleTerminalSelectionMouseUp,
-  terminalSelectionActionDelayForClickCount,
 } from "./ThreadTerminalDrawer";
 
 describe("resolveTerminalSelectionActionPosition", () => {
+  it("recognizes Ctrl+Shift+C and Cmd+Shift+C as terminal copy-selection shortcuts", () => {
+    expect(
+      isTerminalCopySelectionShortcut({
+        type: "keydown",
+        key: "C",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: true,
+        altKey: false,
+      }),
+    ).toBe(true);
+    expect(
+      isTerminalCopySelectionShortcut({
+        type: "keydown",
+        key: "c",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: true,
+        altKey: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat plain Ctrl+C as terminal copy-selection", () => {
+    expect(
+      isTerminalCopySelectionShortcut({
+        type: "keydown",
+        key: "c",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toBe(false);
+  });
+
   it("prefers the selection rect over the last pointer position", () => {
     expect(
       resolveTerminalSelectionActionPosition({
@@ -61,18 +96,6 @@ describe("resolveTerminalSelectionActionPosition", () => {
       x: 100,
       y: 50,
     });
-  });
-
-  it("delays multi-click selection actions so triple-click selection can complete", () => {
-    expect(terminalSelectionActionDelayForClickCount(1)).toBe(0);
-    expect(terminalSelectionActionDelayForClickCount(2)).toBe(260);
-    expect(terminalSelectionActionDelayForClickCount(3)).toBe(260);
-  });
-
-  it("only handles mouseup when the selection gesture started in the terminal", () => {
-    expect(shouldHandleTerminalSelectionMouseUp(true, 0)).toBe(true);
-    expect(shouldHandleTerminalSelectionMouseUp(false, 0)).toBe(false);
-    expect(shouldHandleTerminalSelectionMouseUp(true, 1)).toBe(false);
   });
 
   it("replays only terminal events newer than the open snapshot", () => {
