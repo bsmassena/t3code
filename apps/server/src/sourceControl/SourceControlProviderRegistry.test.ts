@@ -1,10 +1,16 @@
 import { assert, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { DateTime, Effect, Layer, Option } from "effect";
 
-import { GitHubCli } from "./GitHubCli.ts";
+import { ServerConfig } from "../config.ts";
+import type * as VcsDriver from "../vcs/VcsDriver.ts";
+import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as AzureDevOpsCli from "./AzureDevOpsCli.ts";
+import * as BitbucketApi from "./BitbucketApi.ts";
+import * as GitHubCli from "./GitHubCli.ts";
+import * as GitLabCli from "./GitLabCli.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
-import { VcsDriverRegistry } from "../vcs/VcsDriverRegistry.ts";
-import type { VcsDriverShape } from "../vcs/VcsDriver.ts";
 
 const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
 
@@ -28,10 +34,10 @@ function makeRegistry(input: {
           expiresAt: Option.none(),
         },
       }),
-  } satisfies Partial<VcsDriverShape>;
+  } satisfies Partial<VcsDriver.VcsDriverShape>;
 
-  const registryLayer = Layer.mock(VcsDriverRegistry)({
-    get: () => Effect.succeed(driver as unknown as VcsDriverShape),
+  const registryLayer = Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+    get: () => Effect.succeed(driver as unknown as VcsDriver.VcsDriverShape),
     resolve: () =>
       Effect.succeed({
         kind: "git",
@@ -45,12 +51,24 @@ function makeRegistry(input: {
             expiresAt: Option.none(),
           },
         },
-        driver: driver as unknown as VcsDriverShape,
+        driver: driver as unknown as VcsDriver.VcsDriverShape,
       }),
   });
 
   return SourceControlProviderRegistry.make().pipe(
-    Effect.provide(Layer.mergeAll(registryLayer, Layer.mock(GitHubCli)({}))),
+    Effect.provide(
+      Layer.mergeAll(
+        registryLayer,
+        Layer.mock(AzureDevOpsCli.AzureDevOpsCli)({}),
+        Layer.mock(BitbucketApi.BitbucketApi)({}),
+        Layer.mock(GitHubCli.GitHubCli)({}),
+        Layer.mock(GitLabCli.GitLabCli)({}),
+        Layer.mock(VcsProcess.VcsProcess)({}),
+        ServerConfig.layerTest(process.cwd(), { prefix: "t3-source-control-registry-test-" }).pipe(
+          Layer.provide(NodeServices.layer),
+        ),
+      ),
+    ),
   );
 }
 
@@ -78,27 +96,40 @@ it.effect("routes directly by provider kind for remote-first workflows", () =>
   }),
 );
 
-it.effect(
-  "detects GitLab remotes and returns an unsupported provider until one is registered",
-  () =>
-    Effect.gen(function* () {
-      const registry = yield* makeRegistry({
-        remotes: [{ name: "origin", url: "git@gitlab.com:group/project.git" }],
-      });
+it.effect("routes GitLab remotes to the GitLab provider", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: "git@gitlab.com:group/project.git" }],
+    });
 
-      const provider = yield* registry.resolve({ cwd: "/repo" });
+    const provider = yield* registry.resolve({ cwd: "/repo" });
 
-      assert.strictEqual(provider.kind, "gitlab");
-      const error = yield* Effect.flip(
-        provider.listChangeRequests({
-          cwd: "/repo",
-          headSelector: "feature/source-control",
-          state: "open",
-        }),
-      );
+    assert.strictEqual(provider.kind, "gitlab");
+  }),
+);
 
-      assert.strictEqual(error.provider, "gitlab");
-    }),
+it.effect("routes Bitbucket remotes to the Bitbucket provider", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: "git@bitbucket.org:pingdotgg/t3code.git" }],
+    });
+
+    const provider = yield* registry.resolve({ cwd: "/repo" });
+
+    assert.strictEqual(provider.kind, "bitbucket");
+  }),
+);
+
+it.effect("routes Azure DevOps remotes to the Azure DevOps provider", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: "https://dev.azure.com/acme/project/_git/repo" }],
+    });
+
+    const provider = yield* registry.resolve({ cwd: "/repo" });
+
+    assert.strictEqual(provider.kind, "azure-devops");
+  }),
 );
 
 it.effect("falls back to a non-origin remote when origin is not configured", () =>

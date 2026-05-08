@@ -296,6 +296,18 @@ function configureRemote(
   });
 }
 
+function configureVisibleRemoteUrlWithLocalRewrite(
+  cwd: string,
+  remoteName: string,
+  visibleUrl: string,
+  localRemotePath: string,
+): Effect.Effect<void, GitCommandError, GitVcsDriver.GitVcsDriver> {
+  return Effect.gen(function* () {
+    yield* runGit(cwd, ["config", `remote.${remoteName}.url`, visibleUrl]);
+    yield* runGit(cwd, ["config", `url.${localRemotePath}.insteadOf`, visibleUrl]);
+  });
+}
+
 function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): TextGenerationShape {
   const implementation: FakeGitTextGeneration = {
     generateCommitMessage: (input) =>
@@ -582,6 +594,13 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           cwd: input.cwd,
           args: ["repo", "view", input.repository, "--json", "nameWithOwner,url,sshUrl"],
         }).pipe(Effect.map((result) => JSON.parse(result.stdout))),
+      createRepository: (input) =>
+        Effect.fail(
+          new GitHubCliError({
+            operation: "createRepository",
+            detail: `Unexpected repository create: ${input.repository}`,
+          }),
+        ),
       checkoutPullRequest: (input) =>
         execute({
           cwd: input.cwd,
@@ -651,6 +670,7 @@ function makeManager(input?: {
           get: () => Effect.succeed(provider),
           resolveHandle: () => Effect.succeed({ provider, context: null }),
           resolve: () => Effect.succeed(provider),
+          discover: Effect.succeed([]),
         }),
       ),
       Effect.provide(Layer.succeed(GitHubCli, gitHubCli)),
@@ -884,6 +904,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         hasUpstream: false,
         aheadCount: 0,
         behindCount: 0,
+        aheadOfDefaultCount: 0,
         pr: null,
       });
     }),
@@ -913,6 +934,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         hasUpstream: false,
         aheadCount: 0,
         behindCount: 0,
+        aheadOfDefaultCount: 0,
         pr: null,
       });
     }),
@@ -1005,11 +1027,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
         yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-488/statemachine"]);
         yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
-        yield* runGit(repoDir, [
-          "config",
-          "remote.fork-seed.url",
+        yield* configureVisibleRemoteUrlWithLocalRewrite(
+          repoDir,
+          "fork-seed",
           "git@github.com:jasonLaster/codething-mvp.git",
-        ]);
+          forkDir,
+        );
 
         const { manager, ghCalls } = yield* makeManager({
           ghScenario: {
@@ -1069,17 +1092,19 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, ["checkout", "-b", "effect-atom"]);
         yield* runGit(repoDir, ["push", "-u", "origin", "effect-atom"]);
         yield* runGit(repoDir, ["push", "-u", "my-org/upstream", "effect-atom"]);
-        yield* runGit(repoDir, [
-          "config",
-          "remote.origin.url",
+        yield* configureVisibleRemoteUrlWithLocalRewrite(
+          repoDir,
+          "origin",
           "git@github.com:pingdotgg/codething-mvp.git",
-        ]);
+          originDir,
+        );
         yield* runGit(repoDir, ["config", "remote.origin.pushurl", originDir]);
-        yield* runGit(repoDir, [
-          "config",
-          "remote.my-org/upstream.url",
-          "git@github.com:pingdotgg/codething-mvp.git",
-        ]);
+        yield* configureVisibleRemoteUrlWithLocalRewrite(
+          repoDir,
+          "my-org/upstream",
+          "ssh://git@github.com/pingdotgg/codething-mvp.git",
+          upstreamDir,
+        );
         yield* runGit(repoDir, ["config", "remote.my-org/upstream.pushurl", upstreamDir]);
         yield* runGit(repoDir, ["checkout", "main"]);
         yield* runGit(repoDir, ["branch", "-D", "effect-atom"]);
@@ -1734,6 +1759,41 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("pushes existing commits without committing dirty worktree changes", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/push-dirty"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "push-dirty.txt"), "push dirty\n");
+      yield* runGit(repoDir, ["add", "push-dirty.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Push dirty branch"]);
+      fs.mkdirSync(path.join(repoDir, ".vercel"));
+      fs.writeFileSync(path.join(repoDir, ".vercel", "project.json"), "{}\n");
+
+      const { manager } = yield* makeManager();
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "push",
+      });
+
+      expect(result.commit.status).toBe("skipped_not_requested");
+      expect(result.push.status).toBe("pushed");
+      expect(result.pr.status).toBe("skipped_not_requested");
+      expect(
+        yield* runGit(repoDir, ["status", "--porcelain"]).pipe(
+          Effect.map((output) => output.stdout.trim()),
+        ),
+      ).toContain("?? .vercel/");
+      expect(
+        yield* runGit(remoteDir, ["log", "-1", "--pretty=%s", "feature/push-dirty"]).pipe(
+          Effect.map((output) => output.stdout.trim()),
+        ),
+      ).toBe("Push dirty branch");
+    }),
+  );
+
   it.effect("create_pr pushes a clean branch before creating the PR when needed", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -1878,11 +1938,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         const forkDir = yield* createBareRemote();
         yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
         yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
-        yield* runGit(repoDir, [
-          "config",
-          "remote.fork-seed.url",
+        yield* configureVisibleRemoteUrlWithLocalRewrite(
+          repoDir,
+          "fork-seed",
           "git@github.com:octocat/codething-mvp.git",
-        ]);
+          forkDir,
+        );
 
         const { manager, ghCalls } = yield* makeManager({
           ghScenario: {
@@ -1940,17 +2001,19 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, ["checkout", "-b", "effect-atom"]);
         yield* runGit(repoDir, ["push", "-u", "origin", "effect-atom"]);
         yield* runGit(repoDir, ["push", "-u", "my-org/upstream", "effect-atom"]);
-        yield* runGit(repoDir, [
-          "config",
-          "remote.origin.url",
+        yield* configureVisibleRemoteUrlWithLocalRewrite(
+          repoDir,
+          "origin",
           "git@github.com:pingdotgg/codething-mvp.git",
-        ]);
+          originDir,
+        );
         yield* runGit(repoDir, ["config", "remote.origin.pushurl", originDir]);
-        yield* runGit(repoDir, [
-          "config",
-          "remote.my-org/upstream.url",
-          "git@github.com:pingdotgg/codething-mvp.git",
-        ]);
+        yield* configureVisibleRemoteUrlWithLocalRewrite(
+          repoDir,
+          "my-org/upstream",
+          "ssh://git@github.com/pingdotgg/codething-mvp.git",
+          upstreamDir,
+        );
         yield* runGit(repoDir, ["config", "remote.my-org/upstream.pushurl", upstreamDir]);
         yield* runGit(repoDir, ["checkout", "main"]);
         yield* runGit(repoDir, ["branch", "-D", "effect-atom"]);
@@ -2030,11 +2093,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
         yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-142/statemachine"]);
         yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
-        yield* runGit(repoDir, [
-          "config",
-          "remote.fork-seed.url",
+        yield* configureVisibleRemoteUrlWithLocalRewrite(
+          repoDir,
+          "fork-seed",
           "git@github.com:octocat/codething-mvp.git",
-        ]);
+          forkDir,
+        );
 
         const { manager, ghCalls } = yield* makeManager({
           ghScenario: {
@@ -2100,11 +2164,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
         yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-142/statemachine"]);
         yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
-        yield* runGit(repoDir, [
-          "config",
-          "remote.fork-seed.url",
+        yield* configureVisibleRemoteUrlWithLocalRewrite(
+          repoDir,
+          "fork-seed",
           "git@github.com:octocat/codething-mvp.git",
-        ]);
+          forkDir,
+        );
 
         const { manager, ghCalls } = yield* makeManager({
           ghScenario: {
@@ -2280,11 +2345,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
       yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-91/statemachine"]);
       yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
-      yield* runGit(repoDir, [
-        "config",
-        "remote.fork-seed.url",
+      yield* configureVisibleRemoteUrlWithLocalRewrite(
+        repoDir,
+        "fork-seed",
         "git@github.com:octocat/codething-mvp.git",
-      ]);
+        forkDir,
+      );
 
       const { manager, ghCalls } = yield* makeManager({
         ghScenario: {
@@ -2478,6 +2544,113 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(branch).toBe("feature/pr-local");
       expect(ghCalls).toContain("pr checkout 64 --force");
     }),
+  );
+
+  it.effect(
+    "restores same-repository upstream tracking after local PR checkout without a remote ref",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        const remoteDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+        yield* runGit(repoDir, ["checkout", "-b", "feature/pr-local-upstream"]);
+        fs.writeFileSync(path.join(repoDir, "upstream.txt"), "upstream\n");
+        yield* runGit(repoDir, ["add", "upstream.txt"]);
+        yield* runGit(repoDir, ["commit", "-m", "Local upstream PR branch"]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "feature/pr-local-upstream"]);
+        yield* runGit(repoDir, ["checkout", "main"]);
+        yield* runGit(repoDir, ["branch", "-D", "feature/pr-local-upstream"]);
+        yield* runGit(repoDir, [
+          "update-ref",
+          "-d",
+          "refs/remotes/origin/feature/pr-local-upstream",
+        ]);
+
+        const { manager } = yield* makeManager({
+          ghScenario: {
+            pullRequest: {
+              number: 65,
+              title: "Local upstream PR",
+              url: "https://github.com/pingdotgg/codething-mvp/pull/65",
+              baseRefName: "main",
+              headRefName: "feature/pr-local-upstream",
+              state: "open",
+              isCrossRepository: false,
+              headRepositoryNameWithOwner: "pingdotgg/codething-mvp",
+              headRepositoryOwnerLogin: "pingdotgg",
+            },
+            repositoryCloneUrls: {
+              "pingdotgg/codething-mvp": {
+                url: remoteDir,
+                sshUrl: remoteDir,
+              },
+            },
+          },
+        });
+
+        const result = yield* preparePullRequestThread(manager, {
+          cwd: repoDir,
+          reference: "65",
+          mode: "local",
+        });
+
+        expect(result.worktreePath).toBeNull();
+        expect(result.branch).toBe("feature/pr-local-upstream");
+        expect(
+          (yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "@{upstream}"])).stdout.trim(),
+        ).toBe("origin/feature/pr-local-upstream");
+      }),
+  );
+
+  it.effect(
+    "restores same-repository upstream tracking when provider omits head repository metadata",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        const remoteDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+        yield* runGit(repoDir, ["checkout", "-b", "feature/pr-local-no-head-repo"]);
+        fs.writeFileSync(path.join(repoDir, "no-head-repo.txt"), "upstream\n");
+        yield* runGit(repoDir, ["add", "no-head-repo.txt"]);
+        yield* runGit(repoDir, ["commit", "-m", "Local PR branch without repo metadata"]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "feature/pr-local-no-head-repo"]);
+        yield* runGit(repoDir, ["checkout", "main"]);
+        yield* runGit(repoDir, ["branch", "-D", "feature/pr-local-no-head-repo"]);
+        yield* runGit(repoDir, [
+          "update-ref",
+          "-d",
+          "refs/remotes/origin/feature/pr-local-no-head-repo",
+        ]);
+
+        const { manager } = yield* makeManager({
+          ghScenario: {
+            pullRequest: {
+              number: 66,
+              title: "Local upstream PR without repo metadata",
+              url: "https://github.com/pingdotgg/codething-mvp/pull/66",
+              baseRefName: "main",
+              headRefName: "feature/pr-local-no-head-repo",
+              state: "open",
+            },
+          },
+        });
+
+        const result = yield* preparePullRequestThread(manager, {
+          cwd: repoDir,
+          reference: "66",
+          mode: "local",
+        });
+
+        expect(result.worktreePath).toBeNull();
+        expect(result.branch).toBe("feature/pr-local-no-head-repo");
+        expect(
+          (yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "@{upstream}"])).stdout.trim(),
+        ).toBe("origin/feature/pr-local-no-head-repo");
+      }),
   );
 
   it.effect("prepares pull request threads in worktree mode on the PR head branch", () =>
@@ -3057,7 +3230,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       fs.writeFileSync(path.join(repoDir, "hooked.txt"), "hooked\n");
       fs.writeFileSync(
         path.join(repoDir, ".git", "hooks", "pre-commit"),
-        '#!/bin/sh\necho "hook: start" >&2\nsleep 1\necho "hook: end" >&2\n',
+        '#!/bin/sh\necho "hook: start" >&2\nsleep 0.05\necho "hook: end" >&2\n',
         { mode: 0o755 },
       );
 

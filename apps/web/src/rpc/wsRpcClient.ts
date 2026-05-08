@@ -73,6 +73,11 @@ export interface WsRpcClient {
   readonly filesystem: {
     readonly browse: RpcUnaryMethod<typeof WS_METHODS.filesystemBrowse>;
   };
+  readonly sourceControl: {
+    readonly lookupRepository: RpcUnaryMethod<typeof WS_METHODS.sourceControlLookupRepository>;
+    readonly cloneRepository: RpcUnaryMethod<typeof WS_METHODS.sourceControlCloneRepository>;
+    readonly publishRepository: RpcUnaryMethod<typeof WS_METHODS.sourceControlPublishRepository>;
+  };
   readonly shell: {
     readonly openInEditor: (input: {
       readonly cwd: Parameters<LocalApi["shell"]["openInEditor"]>[0];
@@ -117,7 +122,9 @@ export interface WsRpcClient {
     readonly refreshProviders: (
       input?: RpcInput<typeof WS_METHODS.serverRefreshProviders>,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverRefreshProviders>>;
+    readonly updateProvider: RpcUnaryMethod<typeof WS_METHODS.serverUpdateProvider>;
     readonly upsertKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverUpsertKeybinding>;
+    readonly removeKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverRemoveKeybinding>;
     readonly getSettings: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetSettings>;
     readonly updateSettings: (
       patch: ServerSettingsPatch,
@@ -125,6 +132,11 @@ export interface WsRpcClient {
     readonly discoverSourceControl: RpcUnaryNoArgMethod<
       typeof WS_METHODS.serverDiscoverSourceControl
     >;
+    readonly getTraceDiagnostics: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetTraceDiagnostics>;
+    readonly getProcessDiagnostics: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.serverGetProcessDiagnostics
+    >;
+    readonly signalProcess: RpcUnaryMethod<typeof WS_METHODS.serverSignalProcess>;
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
     readonly subscribeAuthAccess: RpcStreamMethod<typeof WS_METHODS.subscribeAuthAccess>;
@@ -153,11 +165,10 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       restart: (input) => transport.request((client) => client[WS_METHODS.terminalRestart](input)),
       close: (input) => transport.request((client) => client[WS_METHODS.terminalClose](input)),
       onEvent: (listener, options) =>
-        transport.subscribe(
-          (client) => client[WS_METHODS.subscribeTerminalEvents]({}),
-          listener,
-          options,
-        ),
+        transport.subscribe((client) => client[WS_METHODS.subscribeTerminalEvents]({}), listener, {
+          ...options,
+          tag: WS_METHODS.subscribeTerminalEvents,
+        }),
     },
     projects: {
       searchEntries: (input) =>
@@ -171,6 +182,14 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     },
     filesystem: {
       browse: (input) => transport.request((client) => client[WS_METHODS.filesystemBrowse](input)),
+    },
+    sourceControl: {
+      lookupRepository: (input) =>
+        transport.request((client) => client[WS_METHODS.sourceControlLookupRepository](input)),
+      cloneRepository: (input) =>
+        transport.request((client) => client[WS_METHODS.sourceControlCloneRepository](input)),
+      publishRepository: (input) =>
+        transport.request((client) => client[WS_METHODS.sourceControlPublishRepository](input)),
     },
     shell: {
       openInEditor: (input) =>
@@ -188,7 +207,7 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
             current = applyGitStatusStreamEvent(current, event);
             listener(current);
           },
-          options,
+          { ...options, tag: WS_METHODS.subscribeVcsStatus },
         );
       },
       listRefs: (input) => transport.request((client) => client[WS_METHODS.vcsListRefs](input)),
@@ -231,31 +250,44 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
       refreshProviders: (input) =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders](input ?? {})),
+      updateProvider: (input) =>
+        transport.request((client) => client[WS_METHODS.serverUpdateProvider](input)),
       upsertKeybinding: (input) =>
         transport.request((client) => client[WS_METHODS.serverUpsertKeybinding](input)),
+      removeKeybinding: (input) =>
+        transport.request((client) => client[WS_METHODS.serverRemoveKeybinding](input)),
       getSettings: () => transport.request((client) => client[WS_METHODS.serverGetSettings]({})),
       updateSettings: (patch) =>
         transport.request((client) => client[WS_METHODS.serverUpdateSettings]({ patch })),
       discoverSourceControl: () =>
         transport.request((client) => client[WS_METHODS.serverDiscoverSourceControl]({})),
+      getTraceDiagnostics: () =>
+        transport.request((client) =>
+          client[WS_METHODS.serverGetTraceDiagnostics]({}).pipe(Effect.withTracerEnabled(false)),
+        ),
+      getProcessDiagnostics: () =>
+        transport.request((client) =>
+          client[WS_METHODS.serverGetProcessDiagnostics]({}).pipe(Effect.withTracerEnabled(false)),
+        ),
+      signalProcess: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.serverSignalProcess](input).pipe(Effect.withTracerEnabled(false)),
+        ),
       subscribeConfig: (listener, options) =>
-        transport.subscribe(
-          (client) => client[WS_METHODS.subscribeServerConfig]({}),
-          listener,
-          options,
-        ),
+        transport.subscribe((client) => client[WS_METHODS.subscribeServerConfig]({}), listener, {
+          ...options,
+          tag: WS_METHODS.subscribeServerConfig,
+        }),
       subscribeLifecycle: (listener, options) =>
-        transport.subscribe(
-          (client) => client[WS_METHODS.subscribeServerLifecycle]({}),
-          listener,
-          options,
-        ),
+        transport.subscribe((client) => client[WS_METHODS.subscribeServerLifecycle]({}), listener, {
+          ...options,
+          tag: WS_METHODS.subscribeServerLifecycle,
+        }),
       subscribeAuthAccess: (listener, options) =>
-        transport.subscribe(
-          (client) => client[WS_METHODS.subscribeAuthAccess]({}),
-          listener,
-          options,
-        ),
+        transport.subscribe((client) => client[WS_METHODS.subscribeAuthAccess]({}), listener, {
+          ...options,
+          tag: WS_METHODS.subscribeAuthAccess,
+        }),
     },
     orchestration: {
       dispatchCommand: (input) =>
@@ -268,13 +300,13 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.subscribe(
           (client) => client[ORCHESTRATION_WS_METHODS.subscribeShell]({}),
           listener,
-          options,
+          { ...options, tag: ORCHESTRATION_WS_METHODS.subscribeShell },
         ),
       subscribeThread: (input, listener, options) =>
         transport.subscribe(
           (client) => client[ORCHESTRATION_WS_METHODS.subscribeThread](input),
           listener,
-          options,
+          { ...options, tag: ORCHESTRATION_WS_METHODS.subscribeThread },
         ),
     },
   };

@@ -26,12 +26,19 @@ import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
 
 const clientSettingsListeners = new Set<() => void>();
+const clientSettingsHydrationListeners = new Set<() => void>();
 let clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
 let clientSettingsHydrated = false;
 let clientSettingsHydrationPromise: Promise<void> | null = null;
 
 function emitClientSettingsChange() {
   for (const listener of clientSettingsListeners) {
+    listener();
+  }
+}
+
+function emitClientSettingsHydrationChange() {
+  for (const listener of clientSettingsHydrationListeners) {
     listener();
   }
 }
@@ -52,11 +59,31 @@ function mergePersistedClientSettings(settings: Partial<ClientSettings>): Client
   };
 }
 
+function setClientSettingsHydrated(nextHydrated: boolean): void {
+  if (clientSettingsHydrated === nextHydrated) {
+    return;
+  }
+  clientSettingsHydrated = nextHydrated;
+  emitClientSettingsHydrationChange();
+}
+
 function subscribeClientSettings(listener: () => void): () => void {
   clientSettingsListeners.add(listener);
   void hydrateClientSettings();
   return () => {
     clientSettingsListeners.delete(listener);
+  };
+}
+
+function getClientSettingsHydratedSnapshot(): boolean {
+  return clientSettingsHydrated;
+}
+
+function subscribeClientSettingsHydration(listener: () => void): () => void {
+  clientSettingsHydrationListeners.add(listener);
+  void hydrateClientSettings();
+  return () => {
+    clientSettingsHydrationListeners.delete(listener);
   };
 }
 
@@ -77,7 +104,7 @@ async function hydrateClientSettings(): Promise<void> {
     } catch (error) {
       console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, error);
     } finally {
-      clientSettingsHydrated = true;
+      setClientSettingsHydrated(true);
     }
   })();
 
@@ -137,6 +164,14 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
  */
 export function getClientSettings(): ClientSettings {
   return getClientSettingsSnapshot();
+}
+
+export function useClientSettingsHydrated(): boolean {
+  return useSyncExternalStore(
+    subscribeClientSettingsHydration,
+    getClientSettingsHydratedSnapshot,
+    () => false,
+  );
 }
 
 export function useSettings<T = UnifiedSettings>(selector?: (s: UnifiedSettings) => T): T {
@@ -200,6 +235,7 @@ export function __resetClientSettingsPersistenceForTests(): void {
   clientSettingsHydrated = false;
   clientSettingsHydrationPromise = null;
   clientSettingsListeners.clear();
+  clientSettingsHydrationListeners.clear();
 }
 
 export function __mergePersistedClientSettingsForTests(

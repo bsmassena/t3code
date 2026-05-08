@@ -58,6 +58,11 @@ const rpcClientMock = {
   filesystem: {
     browse: vi.fn(),
   },
+  sourceControl: {
+    lookupRepository: vi.fn(),
+    cloneRepository: vi.fn(),
+    publishRepository: vi.fn(),
+  },
   shell: {
     openInEditor: vi.fn(),
   },
@@ -82,6 +87,7 @@ const rpcClientMock = {
   server: {
     getConfig: vi.fn(),
     refreshProviders: vi.fn(),
+    updateProvider: vi.fn(),
     upsertKeybinding: vi.fn(),
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
@@ -175,19 +181,50 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     getSavedEnvironmentSecret: async () => null,
     setSavedEnvironmentSecret: async () => true,
     removeSavedEnvironmentSecret: async () => undefined,
+    discoverSshHosts: async () => [],
+    ensureSshEnvironment: async () => {
+      throw new Error("ensureSshEnvironment not implemented in test");
+    },
+    disconnectSshEnvironment: async () => undefined,
+    fetchSshEnvironmentDescriptor: async () => {
+      throw new Error("fetchSshEnvironmentDescriptor not implemented in test");
+    },
+    bootstrapSshBearerSession: async () => {
+      throw new Error("bootstrapSshBearerSession not implemented in test");
+    },
+    fetchSshSessionState: async () => {
+      throw new Error("fetchSshSessionState not implemented in test");
+    },
+    issueSshWebSocketToken: async () => {
+      throw new Error("issueSshWebSocketToken not implemented in test");
+    },
+    onSshPasswordPrompt: () => () => undefined,
+    resolveSshPasswordPrompt: async () => undefined,
     getServerExposureState: async () => ({
       mode: "local-only",
       endpointUrl: null,
       advertisedHost: null,
+      tailscaleServeEnabled: false,
+      tailscaleServePort: 443,
     }),
     setServerExposureMode: async () => ({
       mode: "local-only",
       endpointUrl: null,
       advertisedHost: null,
+      tailscaleServeEnabled: false,
+      tailscaleServePort: 443,
     }),
     requestJsonHttp: async () => {
       throw new Error("requestJsonHttp not implemented in test");
     },
+    setTailscaleServeEnabled: async (input) => ({
+      mode: "local-only",
+      endpointUrl: null,
+      advertisedHost: null,
+      tailscaleServeEnabled: input.enabled,
+      tailscaleServePort: input.port ?? 443,
+    }),
+    getAdvertisedEndpoints: async () => [],
     pickFolder: async () => null,
     confirm: async () => true,
     setTheme: async () => undefined,
@@ -483,6 +520,34 @@ describe("wsApi", () => {
     expect(rpcClientMock.server.refreshProviders).toHaveBeenCalledWith();
   });
 
+  it("forwards provider updates directly to the RPC client", async () => {
+    const nextProviders: ReadonlyArray<ServerProvider> = [
+      {
+        ...defaultProviders[0]!,
+        updateState: {
+          status: "succeeded",
+          startedAt: "2026-01-03T00:00:00.000Z",
+          finishedAt: "2026-01-03T00:00:01.000Z",
+          message: "Provider updated.",
+          output: null,
+        },
+      },
+    ];
+    rpcClientMock.server.updateProvider.mockResolvedValue({ providers: nextProviders });
+    const { createLocalApi } = await import("./localApi");
+
+    const api = createLocalApi(rpcClientMock as never);
+
+    await expect(
+      api.server.updateProvider({ provider: ProviderDriverKind.make("codex") }),
+    ).resolves.toEqual({
+      providers: nextProviders,
+    });
+    expect(rpcClientMock.server.updateProvider).toHaveBeenCalledWith({
+      provider: ProviderDriverKind.make("codex"),
+    });
+  });
+
   it("forwards server settings updates directly to the RPC client", async () => {
     const nextSettings = {
       ...DEFAULT_SERVER_SETTINGS,
@@ -542,6 +607,8 @@ describe("wsApi", () => {
       autoOpenPlanSidebar: false,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
+      dismissedProviderUpdateNotificationKeys: [],
+      diffIgnoreWhitespace: true,
       diffWordWrap: true,
       favorites: [],
       providerModelPreferences: {},
@@ -554,6 +621,7 @@ describe("wsApi", () => {
       },
       sidebarProjectSortOrder: "manual" as const,
       sidebarThreadSortOrder: "created_at" as const,
+      sidebarThreadPreviewCount: 6,
       timestampFormat: "24-hour" as const,
     };
     const getClientSettings = vi.fn().mockResolvedValue({
@@ -605,6 +673,8 @@ describe("wsApi", () => {
       autoOpenPlanSidebar: false,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
+      dismissedProviderUpdateNotificationKeys: [],
+      diffIgnoreWhitespace: true,
       diffWordWrap: true,
       favorites: [],
       providerModelPreferences: {},
@@ -617,6 +687,7 @@ describe("wsApi", () => {
       },
       sidebarProjectSortOrder: "manual" as const,
       sidebarThreadSortOrder: "created_at" as const,
+      sidebarThreadPreviewCount: 6,
       timestampFormat: "24-hour" as const,
     };
 
