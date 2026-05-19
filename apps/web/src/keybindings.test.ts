@@ -107,7 +107,7 @@ const DEFAULT_BINDINGS = compile([
   },
   {
     shortcut: modShortcut("e"),
-    command: "workspaceEditor.projectView",
+    command: "workspaceEditor.treesView",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
@@ -305,7 +305,7 @@ describe("shortcutLabelForCommand", () => {
       "Ctrl+D",
     );
     assert.strictEqual(
-      shortcutLabelForCommand(DEFAULT_BINDINGS, "workspaceEditor.projectView", "Linux"),
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "workspaceEditor.treesView", "Linux"),
       "Ctrl+E",
     );
     assert.strictEqual(
@@ -527,7 +527,7 @@ describe("chat/editor shortcuts", () => {
         platform: "MacIntel",
         context: { terminalFocus: false },
       }),
-      "workspaceEditor.projectView",
+      "workspaceEditor.treesView",
     );
   });
 });

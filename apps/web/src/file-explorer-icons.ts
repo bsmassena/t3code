@@ -25,3 +25,11 @@ export function getSetiFileIconUrl(pathValue: string): string {
   const svg = icon.svg.replace("<svg ", `<svg xmlns="http://www.w3.org/2000/svg" fill="${color}" `);
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
+
+export function getSetiFileIconSymbol(pathValue: string, symbolId: string): string {
+  const icon = getSetiIcon(basenameOfPath(pathValue));
+  const color = setiTheme[icon.color] ?? setiTheme.white;
+  return icon.svg
+    .replace("<svg ", `<symbol id="${symbolId}" fill="${color}" `)
+    .replace("</svg>", "</symbol>");
+}

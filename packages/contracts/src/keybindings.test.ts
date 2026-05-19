@@ -47,11 +47,11 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedWorkspaceGitView.command, "workspaceEditor.gitView");
 
-    const parsedWorkspaceProjectView = yield* decode(KeybindingRule, {
+    const parsedWorkspaceTreesView = yield* decode(KeybindingRule, {
       key: "mod+e",
-      command: "workspaceEditor.projectView",
+      command: "workspaceEditor.treesView",
     });
-    assert.strictEqual(parsedWorkspaceProjectView.command, "workspaceEditor.projectView");
+    assert.strictEqual(parsedWorkspaceTreesView.command, "workspaceEditor.treesView");
 
     const parsedCommandPalette = yield* decode(KeybindingRule, {
       key: "mod+k",

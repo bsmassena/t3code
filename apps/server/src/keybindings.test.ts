@@ -196,7 +196,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("modelPicker.jump.1"), "mod+1");
       assert.equal(defaultsByCommand.get("modelPicker.jump.9"), "mod+9");
       assert.equal(defaultsByCommand.get("workspaceEditor.gitView"), "mod+d");
-      assert.equal(defaultsByCommand.get("workspaceEditor.projectView"), "mod+e");
+      assert.equal(defaultsByCommand.get("workspaceEditor.treesView"), "mod+e");
       assert.equal(defaultsByCommand.get("diff.toggle"), "mod+shift+d");
     }),
   );
@@ -218,7 +218,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
 
       assert.equal(byCommand.get("diff.toggle")?.key, "mod+shift+d");
       assert.equal(byCommand.get("workspaceEditor.gitView")?.key, "mod+d");
-      assert.equal(byCommand.get("workspaceEditor.projectView")?.key, "mod+e");
+      assert.equal(byCommand.get("workspaceEditor.treesView")?.key, "mod+e");
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 

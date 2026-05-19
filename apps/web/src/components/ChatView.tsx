@@ -705,15 +705,15 @@ export default function ChatView(props: ChatViewProps) {
     useState<Record<string, number>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [workspaceEditorOpen, setWorkspaceEditorOpen] = useState(false);
-  const [workspaceEditorActiveView, setWorkspaceEditorActiveView] = useState<"project" | "git">(
-    "project",
+  const [workspaceEditorActiveView, setWorkspaceEditorActiveView] = useState<"git" | "trees">(
+    "trees",
   );
   const [workspaceEditorOpenFileRequest, setWorkspaceEditorOpenFileRequest] = useState<{
     readonly relativePath: string;
     readonly requestId: number;
   } | null>(null);
   const [workspaceEditorViewRequest, setWorkspaceEditorViewRequest] = useState<{
-    readonly view: "project" | "git";
+    readonly view: "git" | "trees";
     readonly requestId: number;
   } | null>(null);
   const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
@@ -1730,7 +1730,7 @@ export default function ChatView(props: ChatViewProps) {
     () =>
       shortcutLabelForCommand(
         keybindings,
-        "workspaceEditor.projectView",
+        "workspaceEditor.treesView",
         nonTerminalShortcutLabelOptions,
       ) ?? "Ctrl+E",
     [keybindings, nonTerminalShortcutLabelOptions],
@@ -1740,7 +1740,7 @@ export default function ChatView(props: ChatViewProps) {
     setWorkspaceEditorOpen((open) => !open);
   }, [workspaceEditorAvailable]);
   const openWorkspaceEditorView = useCallback(
-    (view: "project" | "git") => {
+    (view: "git" | "trees") => {
       if (!workspaceEditorAvailable) return;
       if (workspaceEditorOpen && workspaceEditorActiveView === view) {
         setWorkspaceEditorOpen(false);
@@ -1759,7 +1759,12 @@ export default function ChatView(props: ChatViewProps) {
     (relativePath: string) => {
       if (!workspaceEditorAvailable) return;
       workspaceEditorOpenFileRequestIdRef.current += 1;
+      workspaceEditorViewRequestIdRef.current += 1;
       setWorkspaceEditorOpen(true);
+      setWorkspaceEditorViewRequest({
+        view: "trees",
+        requestId: workspaceEditorViewRequestIdRef.current,
+      });
       setWorkspaceEditorOpenFileRequest({
         relativePath,
         requestId: workspaceEditorOpenFileRequestIdRef.current,
@@ -2601,17 +2606,17 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "workspaceEditor.projectView") {
-        event.preventDefault();
-        event.stopPropagation();
-        openWorkspaceEditorView("project");
-        return;
-      }
-
       if (command === "workspaceEditor.gitView") {
         event.preventDefault();
         event.stopPropagation();
         openWorkspaceEditorView("git");
+        return;
+      }
+
+      if (command === "workspaceEditor.treesView") {
+        event.preventDefault();
+        event.stopPropagation();
+        openWorkspaceEditorView("trees");
         return;
       }
 

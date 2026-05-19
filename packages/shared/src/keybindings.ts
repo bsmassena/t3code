@@ -24,7 +24,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
   { key: "mod+d", command: "workspaceEditor.gitView", when: "!terminalFocus" },
-  { key: "mod+e", command: "workspaceEditor.projectView", when: "!terminalFocus" },
+  { key: "mod+e", command: "workspaceEditor.treesView", when: "!terminalFocus" },
   { key: "mod+shift+d", command: "diff.toggle", when: "!terminalFocus" },
   { key: "mod+k", command: "commandPalette.toggle", when: "!terminalFocus" },
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },

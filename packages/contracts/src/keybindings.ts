@@ -57,8 +57,8 @@ const STATIC_KEYBINDING_COMMANDS = [
   "chat.new",
   "chat.newLocal",
   "editor.openFavorite",
-  "workspaceEditor.projectView",
   "workspaceEditor.gitView",
+  "workspaceEditor.treesView",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;
