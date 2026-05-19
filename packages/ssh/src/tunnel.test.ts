@@ -150,6 +150,10 @@ describe("ssh tunnel scripts", () => {
       'DEFAULT_RUNTIME_FILE="$DEFAULT_SERVER_HOME/userdata/server-runtime.json"',
     );
     assert.include(buildRemoteLaunchScript(), "resolve_default_runtime_port()");
+    assert.include(buildRemoteLaunchScript(), "command -v node");
+    assert.include(buildRemoteLaunchScript(), "command -v curl");
+    assert.include(buildRemoteLaunchScript(), 'RUNTIME_JSON="$(tr -d');
+    assert.include(buildRemoteLaunchScript(), "http://127.0.0.1:*|http://localhost:*");
     assert.include(buildRemoteLaunchScript(), "printf 'external\\n' >\"$MANAGED_FILE\"");
     assert.isBelow(
       buildRemoteLaunchScript().indexOf('if [ "$REMOTE_MANAGED" = "managed" ]'),

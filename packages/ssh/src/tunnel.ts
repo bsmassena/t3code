@@ -351,9 +351,23 @@ pick_port() {
 NODE
 }
 wait_ready() {
-  node - "$REMOTE_PORT" "$1" "@@T3_READY_PROBE_TIMEOUT_MS@@" <<'NODE'
+  if command -v node >/dev/null 2>&1; then
+    node - "$REMOTE_PORT" "$1" "@@T3_READY_PROBE_TIMEOUT_MS@@" <<'NODE'
 @@T3_WAIT_READY_SCRIPT@@
 NODE
+    return $?
+  fi
+  if command -v curl >/dev/null 2>&1; then
+    DEADLINE=$(( $(date +%s) + (($1 + 999) / 1000) ))
+    PROBE_TIMEOUT_SECONDS=$(((@@T3_READY_PROBE_TIMEOUT_MS@@ + 999) / 1000))
+    while [ "$(date +%s)" -le "$DEADLINE" ]; do
+      if curl --silent --show-error --fail --output /dev/null --max-time "$PROBE_TIMEOUT_SECONDS" "http://127.0.0.1:$REMOTE_PORT/" 2>/dev/null; then
+        return 0
+      fi
+      sleep 0.1
+    done
+  fi
+  return 1
 }
 wait_for_pid_exit() {
   PID_TO_WAIT="$1"
@@ -364,7 +378,8 @@ wait_for_pid_exit() {
   done
 }
 resolve_default_runtime_port() {
-  node - "$DEFAULT_RUNTIME_FILE" <<'NODE'
+  if command -v node >/dev/null 2>&1; then
+    node - "$DEFAULT_RUNTIME_FILE" <<'NODE'
 const fs = require("node:fs");
 const runtimePath = process.argv[2] ?? "";
 try {
@@ -384,6 +399,23 @@ try {
   process.exit(1);
 }
 NODE
+    return $?
+  fi
+  if [ ! -f "$DEFAULT_RUNTIME_FILE" ]; then
+    return 1
+  fi
+  RUNTIME_JSON="$(tr -d '\n\r\t ' < "$DEFAULT_RUNTIME_FILE")"
+  RUNTIME_PID="$(printf '%s' "$RUNTIME_JSON" | sed -n 's/.*"pid":\\([0-9][0-9]*\\).*/\\1/p')"
+  RUNTIME_PORT="$(printf '%s' "$RUNTIME_JSON" | sed -n 's/.*"port":\\([0-9][0-9]*\\).*/\\1/p')"
+  RUNTIME_ORIGIN="$(printf '%s' "$RUNTIME_JSON" | sed -n 's/.*"origin":"\\([^"]*\\)".*/\\1/p')"
+  case "$RUNTIME_ORIGIN" in
+    http://127.0.0.1:*|http://localhost:*) ;;
+    *) return 1 ;;
+  esac
+  if [ -z "$RUNTIME_PID" ] || [ -z "$RUNTIME_PORT" ] || ! kill -0 "$RUNTIME_PID" 2>/dev/null; then
+    return 1
+  fi
+  printf '%s' "$RUNTIME_PORT"
 }
 REMOTE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
 REMOTE_PORT="$(cat "$PORT_FILE" 2>/dev/null || true)"
