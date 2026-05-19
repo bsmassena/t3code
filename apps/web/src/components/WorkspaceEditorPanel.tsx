@@ -5,6 +5,7 @@ import Editor, { loader, type BeforeMount, type OnMount } from "@monaco-editor/r
 import * as monaco from "monaco-editor";
 import {
   Columns2Icon,
+  FilePenIcon,
   FileTextIcon,
   GitBranchIcon,
   ListTreeIcon,
@@ -12,14 +13,17 @@ import {
   PanelRightCloseIcon,
   Loader2Icon,
   RefreshCwIcon,
+  RotateCcwIcon,
   Rows3Icon,
   TextWrapIcon,
   XIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { readEnvironmentApi } from "../environmentApi";
 import { getSetiFileIconSymbol, getSetiFileIconUrl } from "../file-explorer-icons";
+import { gitRestoreFileMutationOptions } from "../lib/gitReactQuery";
 import { refreshGitStatus, useGitStatus } from "../lib/gitStatusState";
 import { cn } from "~/lib/utils";
 import { Button } from "./ui/button";
@@ -249,28 +253,54 @@ function GitChangeRow(props: {
   deletions: number;
   selected: boolean;
   onSelect: (path: string) => void;
+  onOpenFile: (path: string) => void;
+  onRestore: (path: string) => void;
+  restoreDisabled: boolean;
 }) {
   const slashIndex = props.path.lastIndexOf("/");
   const name = slashIndex >= 0 ? props.path.slice(slashIndex + 1) : props.path;
   const directory = slashIndex >= 0 ? props.path.slice(0, slashIndex) : "";
 
   return (
-    <button
-      type="button"
+    <div
       className={cn(
         "flex h-7 w-full min-w-0 cursor-pointer items-center gap-1.5 px-2 text-left text-xs transition-colors hover:bg-accent/60",
         props.selected && "bg-accent text-accent-foreground",
       )}
       title={props.path}
-      onClick={() => props.onSelect(props.path)}
     >
-      <ExplorerEntryIcon path={props.path} kind="file" />
-      <span className="min-w-0 flex-1 truncate">
-        <span className="text-foreground">{name}</span>
-        {directory ? <span className="ml-1 text-muted-foreground">{directory}</span> : null}
-      </span>
-      <GitChangeCounts insertions={props.insertions} deletions={props.deletions} />
-    </button>
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        onClick={() => props.onSelect(props.path)}
+      >
+        <ExplorerEntryIcon path={props.path} kind="file" />
+        <span className="min-w-0 flex-1 truncate">
+          <span className="text-foreground">{name}</span>
+          {directory ? <span className="ml-1 text-muted-foreground">{directory}</span> : null}
+        </span>
+        <GitChangeCounts insertions={props.insertions} deletions={props.deletions} />
+      </button>
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        aria-label={`Open ${props.path} in editor`}
+        title="Open in editor"
+        onClick={() => props.onOpenFile(props.path)}
+      >
+        <FilePenIcon className="size-3.5" />
+      </Button>
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        aria-label={`Revert changes in ${props.path}`}
+        title="Revert file"
+        disabled={props.restoreDisabled}
+        onClick={() => props.onRestore(props.path)}
+      >
+        <RotateCcwIcon className="size-3.5" />
+      </Button>
+    </div>
   );
 }
 
@@ -733,6 +763,7 @@ export function WorkspaceEditorPanel({
   onViewChange,
   onClose,
 }: WorkspaceEditorPanelProps) {
+  const queryClient = useQueryClient();
   const [directoryEntries, setDirectoryEntries] = useState<
     Record<string, readonly ProjectListDirectoryEntry[]>
   >({});
@@ -847,6 +878,9 @@ export function WorkspaceEditorPanel({
   }, [cwd, fallbackCwd, fallbackCwds]);
   const effectiveCwd = resolvedCwd ?? candidateCwds[0] ?? null;
   const gitStatus = useGitStatus({ environmentId, cwd: effectiveCwd });
+  const restoreFileMutation = useMutation(
+    gitRestoreFileMutationOptions({ environmentId, cwd: effectiveCwd, queryClient }),
+  );
   const gitFiles = useMemo(() => gitStatus.data?.workingTree.files ?? [], [gitStatus.data]);
   const trackedGitFiles = useMemo(() => gitFiles.filter((file) => file.tracked), [gitFiles]);
   const untrackedGitFiles = useMemo(() => gitFiles.filter((file) => !file.tracked), [gitFiles]);
@@ -1185,6 +1219,44 @@ export function WorkspaceEditorPanel({
       setActiveOpenFilePath(nextActivePath);
     },
     [activeOpenFilePath, openFiles],
+  );
+
+  const restoreGitFile = useCallback(
+    (path: string) => {
+      if (!window.confirm(`Revert all Git changes in ${path}?`)) return;
+
+      restoreFileMutation.mutate(path, {
+        onSuccess: () => {
+          setGitDiffCache((previous) => {
+            const next = { ...previous };
+            delete next[gitDiffCacheKey(path, false)];
+            delete next[gitDiffCacheKey(path, true)];
+            return next;
+          });
+          setOpenFiles((previous) => previous.filter((file) => file.path !== path));
+          setActiveOpenFilePath((current) => (current === path ? null : current));
+          toastManager.add(
+            stackedThreadToast({
+              type: "success",
+              title: "File reverted",
+              description: path,
+            }),
+          );
+          void refreshGitStatus({ environmentId, cwd: effectiveCwd });
+          void loadDirectory(dirname(path));
+        },
+        onError: (error) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Unable to revert file",
+              description: errorMessage(error),
+            }),
+          );
+        },
+      });
+    },
+    [effectiveCwd, environmentId, loadDirectory, restoreFileMutation],
   );
 
   const refreshSidebar = useCallback(() => {
@@ -1604,6 +1676,12 @@ export function WorkspaceEditorPanel({
                         deletions={file.deletions}
                         selected={selectedGitPath === file.path}
                         onSelect={setSelectedGitPath}
+                        onOpenFile={(path) => {
+                          setActiveView("trees");
+                          void openFilePath(path);
+                        }}
+                        onRestore={restoreGitFile}
+                        restoreDisabled={restoreFileMutation.isPending}
                       />
                     ))}
                   </div>
@@ -1619,6 +1697,12 @@ export function WorkspaceEditorPanel({
                         deletions={file.deletions}
                         selected={selectedGitPath === file.path}
                         onSelect={setSelectedGitPath}
+                        onOpenFile={(path) => {
+                          setActiveView("trees");
+                          void openFilePath(path);
+                        }}
+                        onRestore={restoreGitFile}
+                        restoreDisabled={restoreFileMutation.isPending}
                       />
                     ))}
                   </div>

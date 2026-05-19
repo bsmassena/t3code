@@ -35,6 +35,8 @@ export const gitMutationKeys = {
     ["git", "mutation", "run-stacked-action", environmentId ?? null, cwd] as const,
   pull: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "pull", environmentId ?? null, cwd] as const,
+  restoreFile: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "mutation", "restore-file", environmentId ?? null, cwd] as const,
   preparePullRequestThread: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "prepare-pull-request-thread", environmentId ?? null, cwd] as const,
   publishRepository: (environmentId: EnvironmentId | null, cwd: string | null) =>
@@ -229,6 +231,24 @@ export function gitPullMutationOptions(input: {
       if (!input.cwd || !input.environmentId) throw new Error("Git pull is unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
       return api.vcs.pull({ cwd: input.cwd });
+    },
+    onSuccess: async () => {
+      await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+    },
+  });
+}
+
+export function gitRestoreFileMutationOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.restoreFile(input.environmentId, input.cwd),
+    mutationFn: async (relativePath: string) => {
+      if (!input.cwd || !input.environmentId) throw new Error("Git restore is unavailable.");
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.vcs.restoreFile({ cwd: input.cwd, relativePath });
     },
     onSuccess: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);

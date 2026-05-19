@@ -998,6 +998,51 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "git" },
           ),
+        [WS_METHODS.vcsRestoreFile]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsRestoreFile,
+            Effect.gen(function* () {
+              const { driver } = yield* vcsDriverRegistry.resolve({ cwd: input.cwd });
+              const trackedInHead = yield* driver.execute({
+                operation: "GitVcsDriver.restoreFile.checkHead",
+                cwd: input.cwd,
+                args: ["ls-tree", "-z", "--name-only", "HEAD", "--", input.relativePath],
+                allowNonZeroExit: true,
+              });
+              if (trackedInHead.exitCode === 0 && trackedInHead.stdout.length > 0) {
+                yield* driver.execute({
+                  operation: "GitVcsDriver.restoreFile",
+                  cwd: input.cwd,
+                  args: ["restore", "--worktree", "--staged", "--", input.relativePath],
+                });
+              } else {
+                yield* driver.execute({
+                  operation: "GitVcsDriver.restoreFile.unstageNewFile",
+                  cwd: input.cwd,
+                  args: ["restore", "--staged", "--", input.relativePath],
+                  allowNonZeroExit: true,
+                });
+                yield* driver.execute({
+                  operation: "GitVcsDriver.restoreFile.untracked",
+                  cwd: input.cwd,
+                  args: ["clean", "-f", "-d", "--", input.relativePath],
+                });
+              }
+              yield* refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true }));
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new GitCommandError({
+                    operation: "GitVcsDriver.restoreFile",
+                    command: "git restore",
+                    cwd: input.cwd,
+                    detail: cause.message,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "vcs" },
+          ),
         [WS_METHODS.gitGetWorktreeFileDiff]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitGetWorktreeFileDiff,

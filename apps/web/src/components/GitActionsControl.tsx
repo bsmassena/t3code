@@ -20,10 +20,12 @@ import {
   ChevronDownIcon,
   CloudUploadIcon,
   ExternalLinkIcon,
+  FilePenIcon,
   GitCommitIcon,
   InfoIcon,
   LockIcon,
   GlobeIcon,
+  RotateCcwIcon,
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
@@ -68,6 +70,7 @@ import {
   gitInitMutationOptions,
   gitMutationKeys,
   gitPullMutationOptions,
+  gitRestoreFileMutationOptions,
   gitRunStackedActionMutationOptions,
   sourceControlPublishRepositoryMutationOptions,
 } from "~/lib/gitReactQuery";
@@ -1092,6 +1095,13 @@ export default function GitActionsControl({
   const pullMutation = useMutation(
     gitPullMutationOptions({ environmentId: activeEnvironmentId, cwd: gitCwd, queryClient }),
   );
+  const restoreFileMutation = useMutation(
+    gitRestoreFileMutationOptions({
+      environmentId: activeEnvironmentId,
+      cwd: gitCwd,
+      queryClient,
+    }),
+  );
 
   const isRunStackedActionRunning =
     useIsMutating({
@@ -1099,11 +1109,14 @@ export default function GitActionsControl({
     }) > 0;
   const isPullRunning =
     useIsMutating({ mutationKey: gitMutationKeys.pull(activeEnvironmentId, gitCwd) }) > 0;
+  const isRestoreFileRunning =
+    useIsMutating({ mutationKey: gitMutationKeys.restoreFile(activeEnvironmentId, gitCwd) }) > 0;
   const isPublishRunning =
     useIsMutating({
       mutationKey: gitMutationKeys.publishRepository(activeEnvironmentId, gitCwd),
     }) > 0;
-  const isGitActionRunning = isRunStackedActionRunning || isPullRunning || isPublishRunning;
+  const isGitActionRunning =
+    isRunStackedActionRunning || isPullRunning || isRestoreFileRunning || isPublishRunning;
   const isSelectingWorktreeBase =
     !activeServerThread &&
     activeDraftThread?.envMode === "worktree" &&
@@ -1622,6 +1635,39 @@ export default function GitActionsControl({
     [gitCwd, threadToastData],
   );
 
+  const restoreChangedFile = useCallback(
+    (filePath: string) => {
+      if (!window.confirm(`Revert all Git changes in ${filePath}?`)) return;
+
+      restoreFileMutation.mutate(filePath, {
+        onSuccess: () => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "success",
+              title: "File reverted",
+              description: filePath,
+              ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+            }),
+          );
+          void refreshGitStatus({ environmentId: activeEnvironmentId, cwd: gitCwd }).catch(
+            () => undefined,
+          );
+        },
+        onError: (error) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Unable to revert file",
+              description: error instanceof Error ? error.message : "An error occurred.",
+              ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+            }),
+          );
+        },
+      });
+    },
+    [activeEnvironmentId, gitCwd, restoreFileMutation, threadToastData],
+  );
+
   const canPublishRepository = isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
 
   if (!gitCwd) return null;
@@ -1863,13 +1909,10 @@ export default function GitActionsControl({
                                   }}
                                 />
                               )}
-                              <button
-                                type="button"
-                                className="flex flex-1 items-center justify-between gap-3 text-left truncate"
-                                onClick={() => openChangedFileInEditor(file.path)}
-                              >
+                              <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
                                 <span
                                   className={`truncate${isExcluded ? " text-muted-foreground" : ""}`}
+                                  title={file.path}
                                 >
                                   {file.path}
                                 </span>
@@ -1884,7 +1927,42 @@ export default function GitActionsControl({
                                     </>
                                   )}
                                 </span>
-                              </button>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Button
+                                        aria-label={`Open ${file.path} in editor`}
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        onClick={() => openChangedFileInEditor(file.path)}
+                                      />
+                                    }
+                                  >
+                                    <FilePenIcon aria-hidden="true" className="size-3.5" />
+                                  </TooltipTrigger>
+                                  <TooltipPopup>Open in editor</TooltipPopup>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Button
+                                        aria-label={`Revert changes in ${file.path}`}
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        disabled={restoreFileMutation.isPending}
+                                        onClick={() => restoreChangedFile(file.path)}
+                                      />
+                                    }
+                                  >
+                                    <RotateCcwIcon aria-hidden="true" className="size-3.5" />
+                                  </TooltipTrigger>
+                                  <TooltipPopup>Revert file</TooltipPopup>
+                                </Tooltip>
+                              </div>
                             </div>
                           );
                         })}
