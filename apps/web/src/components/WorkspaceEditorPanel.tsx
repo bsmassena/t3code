@@ -358,7 +358,30 @@ function MonacoWorkspaceEditor(props: {
   const onEditorMountRef = useRef(props.onEditorMount);
   onEditorMountRef.current = props.onEditorMount;
 
+  const clearModelMarkers = useCallback(
+    (monaco: Parameters<OnMount>[1], model: monaco.editor.ITextModel | null | undefined) => {
+      if (!model) return;
+      const markerOwners = new Set(
+        monaco.editor
+          .getModelMarkers({ resource: model.uri })
+          .map((marker: monaco.editor.IMarker) => marker.owner),
+      );
+      for (const owner of markerOwners) {
+        monaco.editor.setModelMarkers(model, owner, []);
+      }
+    },
+    [],
+  );
+
   const beforeMount = useCallback<BeforeMount>((monaco) => {
+    const disabledDiagnostics = {
+      noSemanticValidation: true,
+      noSuggestionDiagnostics: true,
+      noSyntaxValidation: true,
+    };
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions(disabledDiagnostics);
+    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions(disabledDiagnostics);
+
     monaco.editor.defineTheme("t3code-monaco-dark", {
       base: "vs-dark",
       inherit: true,
@@ -393,12 +416,32 @@ function MonacoWorkspaceEditor(props: {
     });
   }, []);
 
-  const handleMount = useCallback<OnMount>((editor, monaco) => {
-    onEditorMountRef.current?.(editor);
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      onSaveRef.current();
-    });
-  }, []);
+  const handleMount = useCallback<OnMount>(
+    (editor, monaco) => {
+      onEditorMountRef.current?.(editor);
+      const model = editor.getModel();
+      clearModelMarkers(monaco, model);
+      const markersDisposable = monaco.editor.onDidChangeMarkers(
+        (changedResources: readonly monaco.Uri[]) => {
+          const currentModel = editor.getModel();
+          if (!currentModel) return;
+          if (
+            !changedResources.some(
+              (resource: monaco.Uri) => resource.toString() === currentModel.uri.toString(),
+            )
+          ) {
+            return;
+          }
+          clearModelMarkers(monaco, currentModel);
+        },
+      );
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+        onSaveRef.current();
+      });
+      editor.onDidDispose(() => markersDisposable.dispose());
+    },
+    [clearModelMarkers],
+  );
 
   return (
     <Editor
@@ -437,6 +480,7 @@ function MonacoWorkspaceEditor(props: {
         },
         readOnly: Boolean(props.disabled),
         renderLineHighlight: "all",
+        renderValidationDecorations: "off",
         scrollBeyondLastLine: false,
         smoothScrolling: true,
         tabSize: 2,
