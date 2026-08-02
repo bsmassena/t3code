@@ -7,7 +7,13 @@ import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelSt
 const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
 
 describe("diffPanelStore", () => {
-  beforeEach(() => useDiffPanelStore.setState({ byThreadKey: {}, branchBaseRefByThreadKey: {} }));
+  beforeEach(() =>
+    useDiffPanelStore.setState({
+      byThreadKey: {},
+      branchBaseRefByThreadKey: {},
+      diffFileUiStateByScopeKey: {},
+    }),
+  );
 
   it("defaults each thread to branch changes with automatic base selection", () => {
     expect(
@@ -64,5 +70,19 @@ describe("diffPanelStore", () => {
       filePath: "src/app.ts",
       revealRequestId: 1,
     });
+  });
+
+  it("keeps expanded and viewed files in client state until the thread is removed", () => {
+    const scopeKey = `${THREAD_REF.environmentId}:${THREAD_REF.threadId}:branch`;
+    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, "src/app.ts");
+    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, "src/app.ts");
+
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
+      expandedFileKeys: ["src/app.ts"],
+      viewedFileKeys: ["src/app.ts"],
+    });
+
+    useDiffPanelStore.getState().removeThread(THREAD_REF);
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toBeUndefined();
   });
 });
