@@ -14,6 +14,7 @@ import {
   ChevronsDownUpIcon,
   ChevronsUpDownIcon,
   Columns2Icon,
+  ExternalLinkIcon,
   PilcrowIcon,
   Rows3Icon,
   SearchIcon,
@@ -76,12 +77,12 @@ type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
 
-interface CollapsedDiffFilesState {
+interface ScopedDiffFilesState {
   readonly scopeKey: string | null;
   readonly fileKeys: ReadonlySet<string>;
 }
 
-const EMPTY_COLLAPSED_DIFF_FILE_KEYS: ReadonlySet<string> = new Set();
+const EMPTY_DIFF_FILE_KEYS: ReadonlySet<string> = new Set();
 
 const DIFF_PANEL_UNSAFE_CSS = `
 [data-diffs-header],
@@ -137,17 +138,39 @@ const DIFF_PANEL_UNSAFE_CSS = `
   line-height: 1 !important;
   min-height: 32px !important;
   padding-block: 6px !important;
+  cursor: pointer;
+  justify-content: flex-start !important;
+  gap: 1ch !important;
+  transition: background-color 120ms ease;
+}
+
+[data-diffs-header]:hover {
+  background-color: color-mix(in srgb, var(--card) 90%, var(--foreground)) !important;
 }
 
 [data-diffs-header] [data-header-content] {
-  align-items: center !important;
+  display: contents !important;
   line-height: 1 !important;
 }
 
 [data-diffs-header] [data-metadata] {
-  align-items: center !important;
+  display: contents !important;
   line-height: 1 !important;
   font-variant-numeric: tabular-nums;
+}
+
+[data-diffs-header] slot[name="header-prefix"]::slotted(*) {
+  order: 0;
+}
+
+[data-diffs-header] [data-change-icon] {
+  order: 1;
+}
+
+[data-diffs-header] [data-prev-name],
+[data-diffs-header] [data-rename-icon],
+[data-diffs-header] [data-title] {
+  order: 2;
 }
 
 [data-diffs-header] [data-additions-count],
@@ -158,6 +181,39 @@ const DIFF_PANEL_UNSAFE_CSS = `
   line-height: 1 !important;
 }
 
+[data-diffs-header] [data-additions-count] {
+  order: 3;
+}
+
+[data-diffs-header] [data-deletions-count] {
+  order: 4;
+}
+
+[data-diffs-header] slot[name="header-filename-suffix"] {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  order: 5;
+}
+
+[data-diffs-header] slot[name="header-filename-suffix"]::slotted(*) {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  transition: opacity 100ms ease;
+}
+
+[data-diffs-header] slot[name="header-metadata"] {
+  display: block;
+  order: 6;
+}
+
+[data-diffs-header]:not(:hover):not(:focus-within)
+  slot[name="header-filename-suffix"]::slotted(*) {
+  pointer-events: none;
+  opacity: 0;
+}
+
 [data-diffs-header] [data-change-icon],
 [data-diffs-header] [data-rename-icon] {
   display: block;
@@ -165,19 +221,9 @@ const DIFF_PANEL_UNSAFE_CSS = `
 }
 
 [data-title] {
-  cursor: pointer;
-  transition:
-    color 120ms ease,
-    text-decoration-color 120ms ease;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  text-underline-offset: 2px;
+  flex: 0 1 auto;
+  cursor: inherit;
   font-family: var(--font-sans) !important;
-}
-
-[data-title]:hover {
-  color: color-mix(in srgb, var(--foreground) 84%, var(--primary)) !important;
-  text-decoration-color: currentColor;
 }
 `;
 
@@ -201,9 +247,13 @@ export default function DiffPanel({
   const [wordWrap, setWordWrap] = useState(settings.wordWrap);
   const [diffIgnoreWhitespace, setDiffIgnoreWhitespace] = useState(settings.diffIgnoreWhitespace);
   const [baseRefQuery, setBaseRefQuery] = useState("");
-  const [collapsedDiffFiles, setCollapsedDiffFiles] = useState<CollapsedDiffFilesState>(() => ({
+  const [collapsedDiffFiles, setCollapsedDiffFiles] = useState<ScopedDiffFilesState>(() => ({
     scopeKey: null,
-    fileKeys: EMPTY_COLLAPSED_DIFF_FILE_KEYS,
+    fileKeys: EMPTY_DIFF_FILE_KEYS,
+  }));
+  const [viewedDiffFiles, setViewedDiffFiles] = useState<ScopedDiffFilesState>(() => ({
+    scopeKey: null,
+    fileKeys: new Set(),
   }));
   const codeViewRef = useRef<AnnotatableCodeViewHandle>(null);
 
@@ -302,7 +352,9 @@ export default function DiffPanel({
   const collapsedDiffFileKeys =
     collapsedDiffFiles.scopeKey === collapseScopeKey
       ? collapsedDiffFiles.fileKeys
-      : EMPTY_COLLAPSED_DIFF_FILE_KEYS;
+      : EMPTY_DIFF_FILE_KEYS;
+  const viewedDiffFileKeys =
+    viewedDiffFiles.scopeKey === collapseScopeKey ? viewedDiffFiles.fileKeys : EMPTY_DIFF_FILE_KEYS;
   const reviewSectionTitle = selectedTurn
     ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
     : selectedGitScope === "unstaged"
@@ -506,10 +558,25 @@ export default function DiffPanel({
     [collapseScopeKey],
   );
 
+  const toggleDiffFileViewed = useCallback(
+    (fileKey: string) => {
+      setViewedDiffFiles((current) => {
+        const next = new Set(current.scopeKey === collapseScopeKey ? current.fileKeys : []);
+        if (next.has(fileKey)) {
+          next.delete(fileKey);
+        } else {
+          next.add(fileKey);
+        }
+        return { scopeKey: collapseScopeKey, fileKeys: next };
+      });
+    },
+    [collapseScopeKey],
+  );
+
   const toggleDiffFileCollapse = useCallback(() => {
     setCollapsedDiffFiles((current) => {
       const currentKeys =
-        current.scopeKey === collapseScopeKey ? current.fileKeys : EMPTY_COLLAPSED_DIFF_FILE_KEYS;
+        current.scopeKey === collapseScopeKey ? current.fileKeys : EMPTY_DIFF_FILE_KEYS;
 
       return {
         scopeKey: collapseScopeKey,
@@ -877,12 +944,25 @@ export default function DiffPanel({
                 className="min-h-0 flex-1"
                 onClickCapture={(event) => {
                   const composedPath = event.nativeEvent.composedPath?.() ?? [];
-                  const title = composedPath.find(
-                    (node): node is HTMLElement =>
-                      node instanceof HTMLElement && node.hasAttribute("data-title"),
+                  const clickedAction = composedPath.some(
+                    (node) =>
+                      node instanceof HTMLElement && node.hasAttribute("data-diff-header-action"),
                   );
-                  const filePath = title?.textContent?.trim();
-                  if (filePath) openDiffFile(filePath);
+                  if (clickedAction) return;
+
+                  const header = composedPath.find(
+                    (node): node is HTMLElement =>
+                      node instanceof HTMLElement && node.hasAttribute("data-diffs-header"),
+                  );
+                  if (!header) return;
+
+                  const root = header.getRootNode();
+                  const host = root instanceof ShadowRoot ? root.host : null;
+                  const fileKey =
+                    host instanceof HTMLElement
+                      ? host.querySelector<HTMLElement>("[data-diff-file-key]")?.dataset.diffFileKey
+                      : undefined;
+                  if (fileKey) toggleDiffFileCollapsed(fileKey);
                 }}
               >
                 <AnnotatableCodeView
@@ -907,6 +987,8 @@ export default function DiffPanel({
                               )}
                               aria-label={collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`}
                               aria-expanded={!collapsed}
+                              data-diff-file-key={fileKey}
+                              data-diff-header-action="toggle-collapse"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 toggleDiffFileCollapsed(fileKey);
@@ -924,6 +1006,67 @@ export default function DiffPanel({
                           {collapsed ? "Expand diff" : "Collapse diff"}
                         </TooltipPopup>
                       </Tooltip>
+                    );
+                  }}
+                  renderHeaderFilenameSuffix={(fileDiff, fileKey) => {
+                    const filePath = resolveFileDiffPath(fileDiff);
+                    const viewed = viewedDiffFileKeys.has(fileKey);
+                    return (
+                      <div className="flex items-center gap-3 transition-opacity duration-100">
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden"
+                                aria-label={`Open ${filePath} in a tab`}
+                                data-diff-header-action="open-file"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openDiffFile(filePath);
+                                }}
+                              />
+                            }
+                          >
+                            <ExternalLinkIcon className="size-3.5" />
+                          </TooltipTrigger>
+                          <TooltipPopup side="top">Open file in a tab</TooltipPopup>
+                        </Tooltip>
+                        {!viewed && (
+                          <button
+                            type="button"
+                            className="absolute top-1/2 right-4 shrink-0 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden"
+                            aria-label={`Mark ${filePath} as viewed`}
+                            data-diff-header-action="toggle-viewed"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleDiffFileViewed(fileKey);
+                            }}
+                          >
+                            Mark as viewed
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }}
+                  renderHeaderMetadata={(fileDiff, fileKey) => {
+                    if (!viewedDiffFileKeys.has(fileKey)) return null;
+                    const filePath = resolveFileDiffPath(fileDiff);
+                    return (
+                      <button
+                        type="button"
+                        className="absolute top-1/2 right-4 inline-flex shrink-0 -translate-y-1/2 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden"
+                        aria-label={`Mark ${filePath} as not viewed`}
+                        aria-pressed="true"
+                        data-diff-header-action="toggle-viewed"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleDiffFileViewed(fileKey);
+                        }}
+                      >
+                        <CheckIcon className="size-3.5" />
+                        <span>Marked as viewed</span>
+                      </button>
                     );
                   }}
                   options={{
