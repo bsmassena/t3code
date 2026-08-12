@@ -100,6 +100,7 @@ import {
   buildFixFindingHandoff,
   buildFixFindingsHandoff,
   buildResolveConflictsPrompt,
+  canPerformPullRequestAction,
   handoffPrompt,
   handoffReviewComments,
   pullRequestActionNeedsHostRefresh,
@@ -107,6 +108,7 @@ import {
   pullRequestHandoffLabels,
   readableFailure,
   resolveBaseFreshness,
+  resolvePullRequestPrimaryAction,
   type PullRequestFinding,
 } from "./pullRequestDetail.logic";
 import { canEditPullRequestChangeRequest } from "./pullRequestEditing.logic";
@@ -340,7 +342,6 @@ function PullRequestBaseFreshnessWarning({
     </Popover>
   );
 }
-
 export function PullRequestDetailPanel({
   environmentId,
   reference,
@@ -1013,26 +1014,8 @@ export function PullRequestDetailPanel({
   useEffect(() => {
     if (!visibleTabs.some((item) => item.value === tab)) setTab("summary");
   }, [tab, visibleTabs]);
-  // Two questions, both of which have to say yes: whether this host can do it at all, and
-  // whether this account may. A reader with read access on someone else's project sees the pull
-  // request and none of the buttons that would only ever be refused.
-  const can = (action: PullRequestAction) =>
-    detail?.capabilities.actions.includes(action) === true &&
-    detail.viewerPermissions.actions.includes(action);
-  // One live action holds the slot. A conflicting change cannot be merged now, so the slot goes
-  // to the thing that would help instead of a Merge button that only ever says no.
-  const primaryAction =
-    detail === null || detail.state !== "open"
-      ? null
-      : detail.isDraft && can("ready")
-        ? "ready"
-        : !can("merge")
-          ? null
-          : conflicting
-            ? "resolve"
-            : allowedMergeMethods.length > 0
-              ? "merge"
-              : null;
+  const can = (action: PullRequestAction) => canPerformPullRequestAction(detail, action);
+  const primaryAction = resolvePullRequestPrimaryAction(detail);
   // The pull request number carries this state in the overview and the right-panel tab mirrors
   // it. Conflicts keep their own row below: an open pull request remains green there.
   const statePresentation = detail
