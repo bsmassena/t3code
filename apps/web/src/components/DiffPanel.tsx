@@ -33,6 +33,7 @@ import { useTheme } from "../hooks/useTheme";
 import {
   buildFileDiffContentVersion,
   buildFileDiffIdentityKey,
+  buildFileDiffUiStateKey,
   getDiffCollapseIconClassName,
   getDiffLineStat,
   getRenderablePatch,
@@ -467,28 +468,41 @@ export default function DiffPanel({
         fileDiff,
         fileKey: buildFileDiffIdentityKey(fileDiff),
         fileVersion: buildFileDiffContentVersion(fileDiff),
+        uiStateKey: buildFileDiffUiStateKey(fileDiff),
       })),
     [renderableFiles],
   );
   const codeViewFiles = useMemo(
     () =>
-      renderableFileEntries.map(({ fileDiff, fileKey, fileVersion }) => {
+      renderableFileEntries.map(({ fileDiff, fileKey, fileVersion, uiStateKey }) => {
         return {
           fileDiff,
           filePath: resolveFileDiffPath(fileDiff),
           fileKey,
           fileVersion,
-          collapsed: !expandedDiffFileKeys.has(fileKey),
+          collapsed: !expandedDiffFileKeys.has(uiStateKey),
         };
       }),
     [expandedDiffFileKeys, renderableFileEntries],
   );
-  const diffFileKeys = useMemo(() => codeViewFiles.map((file) => file.fileKey), [codeViewFiles]);
-  const allDiffFilesCollapsed = areAllDiffFilesCollapsed(diffFileKeys, expandedDiffFileKeys);
+  const diffFileUiStateKeys = useMemo(
+    () => renderableFileEntries.map((file) => file.uiStateKey),
+    [renderableFileEntries],
+  );
+  const uiStateKeyByRenderKey = useMemo(
+    () => new Map(renderableFileEntries.map((file) => [file.fileKey, file.uiStateKey])),
+    [renderableFileEntries],
+  );
+  const allDiffFilesCollapsed = areAllDiffFilesCollapsed(diffFileUiStateKeys, expandedDiffFileKeys);
   const diffLineStat = useMemo(() => getDiffLineStat(renderableFiles), [renderableFiles]);
   const selectedDiffFileKey = selectedFilePath
     ? (codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath)?.fileKey ?? null)
     : null;
+
+  useEffect(() => {
+    if (!collapseScopeKey || diffFileUiStateKeys.length === 0) return;
+    useDiffPanelStore.getState().reconcileDiffFileUiState(collapseScopeKey, diffFileUiStateKeys);
+  }, [collapseScopeKey, diffFileUiStateKeys]);
 
   useEffect(() => {
     if (!selectedDiffFileKey) return;
@@ -524,17 +538,17 @@ export default function DiffPanel({
     [activeCwd, activeRepositoryRoot, openInPreferredEditor, routeThreadRef],
   );
   const toggleDiffFileCollapsed = useCallback(
-    (fileKey: string) => {
+    (fileUiStateKey: string) => {
       if (!collapseScopeKey) return;
-      useDiffPanelStore.getState().toggleDiffFileExpanded(collapseScopeKey, fileKey);
+      useDiffPanelStore.getState().toggleDiffFileExpanded(collapseScopeKey, fileUiStateKey);
     },
     [collapseScopeKey],
   );
 
   const toggleDiffFileViewed = useCallback(
-    (fileKey: string) => {
+    (fileUiStateKey: string) => {
       if (!collapseScopeKey) return;
-      useDiffPanelStore.getState().toggleDiffFileViewed(collapseScopeKey, fileKey);
+      useDiffPanelStore.getState().toggleDiffFileViewed(collapseScopeKey, fileUiStateKey);
     },
     [collapseScopeKey],
   );
@@ -544,9 +558,9 @@ export default function DiffPanel({
     useDiffPanelStore
       .getState()
       .setExpandedDiffFileKeys(collapseScopeKey, [
-        ...toggleAllDiffFileExpansion(diffFileKeys, expandedDiffFileKeys),
+        ...toggleAllDiffFileExpansion(diffFileUiStateKeys, expandedDiffFileKeys),
       ]);
-  }, [collapseScopeKey, diffFileKeys, expandedDiffFileKeys]);
+  }, [collapseScopeKey, diffFileUiStateKeys, expandedDiffFileKeys]);
 
   const selectTurn = (runId: RunId) => {
     if (!routeThreadRef) return;
@@ -977,6 +991,8 @@ export default function DiffPanel({
                   unsafeCSSExtra={DIFF_PANEL_HEADER_UNSAFE_CSS}
                   renderHeaderPrefix={(fileDiff, fileKey, collapsed) => {
                     const filePath = resolveFileDiffPath(fileDiff);
+                    const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
+                    if (!uiStateKey) return null;
                     return (
                       <Tooltip>
                         <TooltipTrigger
@@ -990,11 +1006,11 @@ export default function DiffPanel({
                               )}
                               aria-label={collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`}
                               aria-expanded={!collapsed}
-                              data-diff-file-key={fileKey}
+                              data-diff-file-key={uiStateKey}
                               data-diff-header-action="toggle-collapse"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                toggleDiffFileCollapsed(fileKey);
+                                toggleDiffFileCollapsed(uiStateKey);
                               }}
                             />
                           }
@@ -1013,7 +1029,9 @@ export default function DiffPanel({
                   }}
                   renderHeaderFilenameSuffix={(fileDiff, fileKey) => {
                     const filePath = resolveFileDiffPath(fileDiff);
-                    const viewed = viewedDiffFileKeys.has(fileKey);
+                    const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
+                    if (!uiStateKey) return null;
+                    const viewed = viewedDiffFileKeys.has(uiStateKey);
                     return (
                       <div className="flex items-center gap-3 transition-opacity duration-100">
                         <Tooltip>
@@ -1043,7 +1061,7 @@ export default function DiffPanel({
                             data-diff-header-action="toggle-viewed"
                             onClick={(event) => {
                               event.stopPropagation();
-                              toggleDiffFileViewed(fileKey);
+                              toggleDiffFileViewed(uiStateKey);
                             }}
                           >
                             Mark as viewed
@@ -1053,7 +1071,8 @@ export default function DiffPanel({
                     );
                   }}
                   renderHeaderMetadata={(fileDiff, fileKey) => {
-                    if (!viewedDiffFileKeys.has(fileKey)) return null;
+                    const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
+                    if (!uiStateKey || !viewedDiffFileKeys.has(uiStateKey)) return null;
                     const filePath = resolveFileDiffPath(fileDiff);
                     return (
                       <button
@@ -1064,7 +1083,7 @@ export default function DiffPanel({
                         data-diff-header-action="toggle-viewed"
                         onClick={(event) => {
                           event.stopPropagation();
-                          toggleDiffFileViewed(fileKey);
+                          toggleDiffFileViewed(uiStateKey);
                         }}
                       >
                         <CheckIcon className="size-3.5" />
