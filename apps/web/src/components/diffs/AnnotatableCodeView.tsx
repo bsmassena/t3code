@@ -90,6 +90,16 @@ interface AnnotatableCodeViewProps {
     fileKey: string,
     collapsed: boolean,
   ) => ReactNode;
+  renderHeaderFilenameSuffix?: (
+    fileDiff: FileDiffMetadata,
+    fileKey: string,
+    collapsed: boolean,
+  ) => ReactNode;
+  renderHeaderMetadata?: (
+    fileDiff: FileDiffMetadata,
+    fileKey: string,
+    collapsed: boolean,
+  ) => ReactNode;
 }
 
 interface DiffSelectionContext {
@@ -106,6 +116,8 @@ export function AnnotatableCodeView({
   viewerRef,
   className,
   renderHeaderPrefix,
+  renderHeaderFilenameSuffix,
+  renderHeaderMetadata,
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -254,6 +266,16 @@ export function AnnotatableCodeView({
       renderHeaderPrefix={(item) =>
         item.type === "diff"
           ? renderHeaderPrefix(item.fileDiff, item.id, item.collapsed === true)
+          : null
+      }
+      renderHeaderFilenameSuffix={(item) =>
+        item.type === "diff"
+          ? renderHeaderFilenameSuffix?.(item.fileDiff, item.id, item.collapsed === true)
+          : null
+      }
+      renderHeaderMetadata={(item) =>
+        item.type === "diff"
+          ? renderHeaderMetadata?.(item.fileDiff, item.id, item.collapsed === true)
           : null
       }
       renderAnnotation={(annotation) => {
