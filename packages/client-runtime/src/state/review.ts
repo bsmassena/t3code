@@ -7,6 +7,7 @@ import {
   createEnvironmentRpcQueryAtomFamily,
 } from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
+import { vcsCommandConcurrency, vcsCommandScheduler } from "./vcsCommandScheduler.ts";
 
 export function createReviewEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
@@ -36,6 +37,12 @@ export function createReviewEnvironmentAtoms<R, E>(
             input.changeType,
           ]),
       },
+    }),
+    runDiffFileAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:run-diff-file-action",
+      tag: WS_METHODS.reviewRunDiffFileAction,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
     }),
   };
 }

@@ -21,6 +21,7 @@ import type {
 import type {
   ReviewDiffFileContentsInput,
   ReviewDiffFileContentsResult,
+  ReviewDiffFileActionInput,
   ReviewDiffPreviewInput,
   ReviewDiffPreviewResult,
 } from "./review.ts";
@@ -1355,6 +1356,7 @@ export interface EnvironmentApi {
     getDiffFileContents: (
       input: ReviewDiffFileContentsInput,
     ) => Promise<ReviewDiffFileContentsResult>;
+    runDiffFileAction: (input: ReviewDiffFileActionInput) => Promise<void>;
   };
   orchestrationV2: {
     dispatchCommand: (
