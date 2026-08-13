@@ -45,6 +45,7 @@ describe("AnnotatableCodeView", () => {
         sectionTitle="Working tree"
         composerDraftTarget={"draft-test" as never}
         options={{}}
+        unsafeCSSExtra="[data-diffs-header] { gap: 1ch; }"
         renderHeaderPrefix={() => null}
       />,
     );
@@ -55,5 +56,6 @@ describe("AnnotatableCodeView", () => {
       onGutterUtilityClick: expect.any(Function),
     });
     expect(testState.codeViewOptions).not.toHaveProperty("onLineSelectionEnd");
+    expect(testState.codeViewOptions?.unsafeCSS).toContain("[data-diffs-header] { gap: 1ch; }");
   });
 });
