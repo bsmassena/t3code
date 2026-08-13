@@ -11,6 +11,7 @@ describe("diffPanelStore", () => {
     useDiffPanelStore.setState({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      diffFileUiStateByScopeKey: {},
       diffRenderMode: "stacked",
     }),
   );
@@ -90,5 +91,29 @@ describe("diffPanelStore", () => {
       filePath: "src/app.ts",
       revealRequestId: 1,
     });
+  });
+
+  it("persists expanded and viewed files until the thread is removed", () => {
+    const scopeKey = `${THREAD_REF.environmentId}:${THREAD_REF.threadId}:branch`;
+    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, "src/app.ts");
+    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, "src/app.ts");
+
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
+      expandedFileKeys: ["src/app.ts"],
+      viewedFileKeys: ["src/app.ts"],
+    });
+    expect(
+      useDiffPanelStore.persist.getOptions().partialize?.(useDiffPanelStore.getState()),
+    ).toMatchObject({
+      diffFileUiStateByScopeKey: {
+        [scopeKey]: {
+          expandedFileKeys: ["src/app.ts"],
+          viewedFileKeys: ["src/app.ts"],
+        },
+      },
+    });
+
+    useDiffPanelStore.getState().removeThread(THREAD_REF);
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toBeUndefined();
   });
 });

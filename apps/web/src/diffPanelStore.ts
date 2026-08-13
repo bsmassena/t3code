@@ -12,18 +12,31 @@ export type DiffPanelSelection =
 
 export type DiffRenderMode = "stacked" | "split";
 
+export interface DiffFileUiState {
+  readonly expandedFileKeys: ReadonlyArray<string>;
+  readonly viewedFileKeys: ReadonlyArray<string>;
+}
+
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
 const DEFAULT_WORKING_TREE_SELECTION: DiffPanelSelection = { kind: "unstaged" };
+const EMPTY_DIFF_FILE_UI_STATE: DiffFileUiState = {
+  expandedFileKeys: [],
+  viewedFileKeys: [],
+};
 
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
+  diffFileUiStateByScopeKey: Record<string, DiffFileUiState>;
   diffRenderMode: DiffRenderMode;
   setDiffRenderMode: (mode: DiffRenderMode) => void;
   selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: RunId, filePath?: string) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<RunId>) => void;
+  toggleDiffFileExpanded: (scopeKey: string, fileKey: string) => void;
+  setExpandedDiffFileKeys: (scopeKey: string, fileKeys: ReadonlyArray<string>) => void;
+  toggleDiffFileViewed: (scopeKey: string, fileKey: string) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -32,11 +45,18 @@ function normalizeBaseRef(baseRef: string | null): string | null {
   return normalized ? normalized : null;
 }
 
+function toggleFileKey(fileKeys: ReadonlyArray<string>, fileKey: string): ReadonlyArray<string> {
+  return fileKeys.includes(fileKey)
+    ? fileKeys.filter((candidate) => candidate !== fileKey)
+    : [...fileKeys, fileKey];
+}
+
 export const useDiffPanelStore = create<DiffPanelStoreState>()(
   persist(
     (set) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      diffFileUiStateByScopeKey: {},
       diffRenderMode: "stacked",
       setDiffRenderMode: (diffRenderMode) => set({ diffRenderMode }),
       selectGitScope: (ref, scope) =>
@@ -111,16 +131,65 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
+      toggleDiffFileExpanded: (scopeKey, fileKey) =>
+        set((state) => {
+          const current = state.diffFileUiStateByScopeKey[scopeKey] ?? EMPTY_DIFF_FILE_UI_STATE;
+          return {
+            diffFileUiStateByScopeKey: {
+              ...state.diffFileUiStateByScopeKey,
+              [scopeKey]: {
+                ...current,
+                expandedFileKeys: toggleFileKey(current.expandedFileKeys, fileKey),
+              },
+            },
+          };
+        }),
+      setExpandedDiffFileKeys: (scopeKey, fileKeys) =>
+        set((state) => {
+          const current = state.diffFileUiStateByScopeKey[scopeKey] ?? EMPTY_DIFF_FILE_UI_STATE;
+          return {
+            diffFileUiStateByScopeKey: {
+              ...state.diffFileUiStateByScopeKey,
+              [scopeKey]: { ...current, expandedFileKeys: [...new Set(fileKeys)] },
+            },
+          };
+        }),
+      toggleDiffFileViewed: (scopeKey, fileKey) =>
+        set((state) => {
+          const current = state.diffFileUiStateByScopeKey[scopeKey] ?? EMPTY_DIFF_FILE_UI_STATE;
+          return {
+            diffFileUiStateByScopeKey: {
+              ...state.diffFileUiStateByScopeKey,
+              [scopeKey]: {
+                ...current,
+                viewedFileKeys: toggleFileKey(current.viewedFileKeys, fileKey),
+              },
+            },
+          };
+        }),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
-          if (!(threadKey in state.byThreadKey) && !(threadKey in state.branchBaseRefByThreadKey)) {
+          const diffScopePrefix = `${threadKey}:`;
+          const hasDiffFileUiState = Object.keys(state.diffFileUiStateByScopeKey).some((scopeKey) =>
+            scopeKey.startsWith(diffScopePrefix),
+          );
+          if (
+            !(threadKey in state.byThreadKey) &&
+            !(threadKey in state.branchBaseRefByThreadKey) &&
+            !hasDiffFileUiState
+          ) {
             return state;
           }
           const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
           const { [threadKey]: _removedBaseRef, ...branchBaseRefByThreadKey } =
             state.branchBaseRefByThreadKey;
-          return { byThreadKey, branchBaseRefByThreadKey };
+          const diffFileUiStateByScopeKey = Object.fromEntries(
+            Object.entries(state.diffFileUiStateByScopeKey).filter(
+              ([scopeKey]) => !scopeKey.startsWith(diffScopePrefix),
+            ),
+          );
+          return { byThreadKey, branchBaseRefByThreadKey, diffFileUiStateByScopeKey };
         }),
     }),
     {
@@ -132,6 +201,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       partialize: (state) => ({
         byThreadKey: state.byThreadKey,
         branchBaseRefByThreadKey: state.branchBaseRefByThreadKey,
+        diffFileUiStateByScopeKey: state.diffFileUiStateByScopeKey,
         diffRenderMode: state.diffRenderMode,
       }),
     },
