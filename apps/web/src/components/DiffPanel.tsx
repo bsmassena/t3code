@@ -82,6 +82,69 @@ const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
 
 const EMPTY_DIFF_FILE_KEYS: ReadonlySet<string> = new Set();
 
+const DIFF_PANEL_HEADER_UNSAFE_CSS = `
+[data-diffs-header] {
+  cursor: pointer;
+  justify-content: flex-start !important;
+  gap: 1ch !important;
+}
+
+[data-diffs-header] [data-header-content],
+[data-diffs-header] [data-metadata] {
+  display: contents !important;
+}
+
+[data-diffs-header] slot[name="header-prefix"]::slotted(*) {
+  order: 0;
+}
+
+[data-diffs-header] [data-change-icon] {
+  order: 1;
+}
+
+[data-diffs-header] [data-prev-name],
+[data-diffs-header] [data-rename-icon],
+[data-diffs-header] [data-title] {
+  order: 2;
+}
+
+[data-diffs-header] [data-additions-count] {
+  order: 3;
+}
+
+[data-diffs-header] [data-deletions-count] {
+  order: 4;
+}
+
+[data-diffs-header] slot[name="header-filename-suffix"] {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  order: 5;
+}
+
+[data-diffs-header] slot[name="header-filename-suffix"]::slotted(*) {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+}
+
+[data-diffs-header] slot[name="header-metadata"] {
+  display: block;
+  order: 6;
+}
+
+[data-diffs-header]:not(:hover):not(:focus-within)
+  slot[name="header-filename-suffix"]::slotted(*) {
+  pointer-events: none;
+  opacity: 0;
+}
+
+[data-diffs-header] [data-title] {
+  flex: 0 1 auto;
+}
+`;
+
 interface DiffPanelProps {
   mode?: DiffPanelMode;
   composerDraftTarget: ScopedThreadRef | DraftId;
@@ -892,6 +955,7 @@ export default function DiffPanel({
                   sectionId={reviewSectionId}
                   sectionTitle={reviewSectionTitle}
                   composerDraftTarget={composerDraftTarget}
+                  unsafeCSSExtra={DIFF_PANEL_HEADER_UNSAFE_CSS}
                   renderHeaderPrefix={(fileDiff, fileKey, collapsed) => {
                     const filePath = resolveFileDiffPath(fileDiff);
                     return (
