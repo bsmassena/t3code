@@ -11,10 +11,32 @@ describe("diffPanelStore", () => {
     useDiffPanelStore.setState({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      diffFileUiStateByScopeKey: {},
+      diffRenderMode: "stacked",
     }),
   );
 
-  it("defaults each thread to branch changes when the working tree is clean", () => {
+  it("keeps the selected render mode in panel and persisted state", async () => {
+    useDiffPanelStore.getState().setDiffRenderMode("split");
+
+    expect(useDiffPanelStore.getState().diffRenderMode).toBe("split");
+    expect(
+      useDiffPanelStore.persist.getOptions().partialize?.(useDiffPanelStore.getState()),
+    ).toMatchObject({ diffRenderMode: "split" });
+
+    const { name, storage } = useDiffPanelStore.persist.getOptions();
+    if (!name) throw new Error("Expected diff panel persistence to have a storage name");
+    const persisted = await storage?.getItem(name);
+    expect(persisted?.state).toMatchObject({ diffRenderMode: "split" });
+
+    useDiffPanelStore.setState({ diffRenderMode: "stacked" });
+    if (persisted) await storage?.setItem(name, persisted);
+    await useDiffPanelStore.persist.rehydrate();
+
+    expect(useDiffPanelStore.getState().diffRenderMode).toBe("split");
+  });
+
+  it("defaults each thread to branch changes with automatic base selection", () => {
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
     ).toEqual({ kind: "branch", baseRef: null });
@@ -69,5 +91,29 @@ describe("diffPanelStore", () => {
       filePath: "src/app.ts",
       revealRequestId: 1,
     });
+  });
+
+  it("persists expanded and viewed files until the thread is removed", () => {
+    const scopeKey = `${THREAD_REF.environmentId}:${THREAD_REF.threadId}:branch`;
+    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, "src/app.ts");
+    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, "src/app.ts");
+
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
+      expandedFileKeys: ["src/app.ts"],
+      viewedFileKeys: ["src/app.ts"],
+    });
+    expect(
+      useDiffPanelStore.persist.getOptions().partialize?.(useDiffPanelStore.getState()),
+    ).toMatchObject({
+      diffFileUiStateByScopeKey: {
+        [scopeKey]: {
+          expandedFileKeys: ["src/app.ts"],
+          viewedFileKeys: ["src/app.ts"],
+        },
+      },
+    });
+
+    useDiffPanelStore.getState().removeThread(THREAD_REF);
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toBeUndefined();
   });
 });
