@@ -37,6 +37,7 @@ interface DiffPanelStoreState {
   toggleDiffFileExpanded: (scopeKey: string, fileKey: string) => void;
   setExpandedDiffFileKeys: (scopeKey: string, fileKeys: ReadonlyArray<string>) => void;
   toggleDiffFileViewed: (scopeKey: string, fileKey: string) => void;
+  reconcileDiffFileUiState: (scopeKey: string, fileKeys: ReadonlyArray<string>) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -164,6 +165,38 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
                 ...current,
                 viewedFileKeys: toggleFileKey(current.viewedFileKeys, fileKey),
               },
+            },
+          };
+        }),
+      reconcileDiffFileUiState: (scopeKey, fileKeys) =>
+        set((state) => {
+          const current = state.diffFileUiStateByScopeKey[scopeKey];
+          if (!current) return state;
+
+          const activeFileKeys = new Set(fileKeys);
+          const expandedFileKeys = current.expandedFileKeys.filter((fileKey) =>
+            activeFileKeys.has(fileKey),
+          );
+          const viewedFileKeys = current.viewedFileKeys.filter((fileKey) =>
+            activeFileKeys.has(fileKey),
+          );
+          if (
+            expandedFileKeys.length === current.expandedFileKeys.length &&
+            viewedFileKeys.length === current.viewedFileKeys.length
+          ) {
+            return state;
+          }
+
+          if (expandedFileKeys.length === 0 && viewedFileKeys.length === 0) {
+            const { [scopeKey]: _removed, ...diffFileUiStateByScopeKey } =
+              state.diffFileUiStateByScopeKey;
+            return { diffFileUiStateByScopeKey };
+          }
+
+          return {
+            diffFileUiStateByScopeKey: {
+              ...state.diffFileUiStateByScopeKey,
+              [scopeKey]: { expandedFileKeys, viewedFileKeys },
             },
           };
         }),

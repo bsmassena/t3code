@@ -170,6 +170,68 @@ export function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {
   return cacheKey.endsWith(":hydrated") ? cacheKey.slice(0, -":hydrated".length) : cacheKey;
 }
 
+function readDiffLineContent(lines: ReadonlyArray<string>, start: number, count: number) {
+  return lines.slice(start, start + count).map((line) => {
+    if (!line.endsWith("\n")) return line;
+    return line.endsWith("\r\n") ? line.slice(0, -2) : line.slice(0, -1);
+  });
+}
+
+/**
+ * Identifies the review state for one file without inheriting Pierre's
+ * whole-patch, theme-dependent render cache key. Hydration may move line
+ * indexes into full-file buffers, so the fingerprint reads the referenced
+ * line content instead of serializing those indexes.
+ */
+export function buildFileDiffUiStateKey(fileDiff: FileDiffMetadata): string {
+  const content = JSON.stringify({
+    name: fileDiff.name,
+    prevName: fileDiff.prevName,
+    newObjectId: fileDiff.newObjectId,
+    prevObjectId: fileDiff.prevObjectId,
+    mode: fileDiff.mode,
+    prevMode: fileDiff.prevMode,
+    type: fileDiff.type,
+    hunks: fileDiff.hunks.map((hunk) => ({
+      additionStart: hunk.additionStart,
+      additionCount: hunk.additionCount,
+      deletionStart: hunk.deletionStart,
+      deletionCount: hunk.deletionCount,
+      hunkContext: hunk.hunkContext,
+      hunkSpecs: hunk.hunkSpecs,
+      noEOFCRAdditions: hunk.noEOFCRAdditions,
+      noEOFCRDeletions: hunk.noEOFCRDeletions,
+      content: hunk.hunkContent.map((segment) =>
+        segment.type === "context"
+          ? {
+              type: segment.type,
+              lines: readDiffLineContent(
+                fileDiff.additionLines,
+                segment.additionLineIndex,
+                segment.lines,
+              ),
+            }
+          : {
+              type: segment.type,
+              additions: readDiffLineContent(
+                fileDiff.additionLines,
+                segment.additionLineIndex,
+                segment.additions,
+              ),
+              deletions: readDiffLineContent(
+                fileDiff.deletionLines,
+                segment.deletionLineIndex,
+                segment.deletions,
+              ),
+            },
+      ),
+    })),
+  });
+  const primary = fnv1a32(content, FNV_OFFSET_BASIS_32, FNV_PRIME_32).toString(36);
+  const secondary = fnv1a32(content, SECONDARY_HASH_SEED, SECONDARY_HASH_MULTIPLIER).toString(36);
+  return `${resolveFileDiffPath(fileDiff)}:${content.length}:${primary}:${secondary}`;
+}
+
 export function getDiffCollapseIconClassName(fileDiff: FileDiffMetadata): string {
   switch (fileDiff.type) {
     case "new":

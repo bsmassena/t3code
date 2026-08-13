@@ -116,4 +116,23 @@ describe("diffPanelStore", () => {
     useDiffPanelStore.getState().removeThread(THREAD_REF);
     expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toBeUndefined();
   });
+
+  it("keeps unchanged file state while removing stale content keys", () => {
+    const scopeKey = `${THREAD_REF.environmentId}:${THREAD_REF.threadId}:branch`;
+    const unchangedKey = "src/app.ts:unchanged";
+    const changedKey = "src/other.ts:old";
+    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, unchangedKey);
+    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, changedKey);
+    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, unchangedKey);
+    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, changedKey);
+
+    useDiffPanelStore
+      .getState()
+      .reconcileDiffFileUiState(scopeKey, [unchangedKey, "src/other.ts:new"]);
+
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
+      expandedFileKeys: [unchangedKey],
+      viewedFileKeys: [unchangedKey],
+    });
+  });
 });
