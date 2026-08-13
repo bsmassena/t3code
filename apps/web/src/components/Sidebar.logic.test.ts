@@ -378,6 +378,25 @@ describe("hasUnseenCompletion", () => {
       }),
     ).toBe(false);
   });
+
+  it("does not show Done when the server visit is newer than stale local state", () => {
+    const lastVisitedAt = resolveThreadLastVisitedAt(
+      "2026-03-09T10:06:00.000Z",
+      "2026-03-09T10:04:00.000Z",
+    );
+
+    expect(
+      hasUnseenCompletion({
+        hasActionableProposedPlan: false,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        interactionMode: "default",
+        latestRun: makeLatestRun(),
+        lastVisitedAt,
+        runtime: null,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("createThreadJumpHintVisibilityController", () => {
