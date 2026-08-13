@@ -84,6 +84,7 @@ interface AnnotatableCodeViewProps {
   sectionTitle: string;
   composerDraftTarget: ScopedThreadRef | DraftId;
   options: StyledDiffCodeViewOptions<DiffCommentAnnotationGroup>;
+  unsafeCSSExtra?: string;
   viewerRef?: Ref<AnnotatableCodeViewHandle>;
   className?: string;
   renderHeaderPrefix: (
@@ -114,6 +115,7 @@ export function AnnotatableCodeView({
   sectionTitle,
   composerDraftTarget,
   options,
+  unsafeCSSExtra,
   viewerRef,
   className,
   renderHeaderPrefix,
@@ -255,6 +257,7 @@ export function AnnotatableCodeView({
       key={codeViewKey}
       {...(viewerRef ? { viewerRef } : {})}
       {...(className ? { className } : {})}
+      {...(unsafeCSSExtra ? { unsafeCSSExtra } : {})}
       items={items}
       selectedLines={selectedLines}
       onSelectedLinesChange={setSelectedLines}
