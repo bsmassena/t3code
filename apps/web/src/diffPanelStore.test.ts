@@ -57,6 +57,14 @@ describe("diffPanelStore", () => {
     ).toEqual({ kind: "branch", baseRef: "origin/main" });
   });
 
+  it("selects staged changes as a distinct scope", () => {
+    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "staged");
+
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "staged" });
+  });
+
   it("increments the reveal request when opening the same turn file again", () => {
     const turnId = RunId.make("turn-1");
     useDiffPanelStore.getState().selectTurn(THREAD_REF, turnId, "src/app.ts");

@@ -29,6 +29,13 @@ T3 Code works with the platforms your team already uses:
 
 ### Manage Code Reviews Without Context Switching
 
+**Review local changes before committing**
+
+- Open the diff tab to browse changed files from a directory tree and jump directly to a file
+- Switch between **Unstaged**, **Staged**, branch, and individual turn changes
+- Stage or unstage one file from its diff header; tracked unstaged files can also be reverted
+- Switch between unified and split layouts with the diff-layout button
+
 **Create pull requests while you work**
 
 - Push a branch and create a pull request from the Git actions controls in the toolbar
