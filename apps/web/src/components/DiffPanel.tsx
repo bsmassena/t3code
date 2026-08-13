@@ -16,13 +16,17 @@ import {
   ChevronsUpDownIcon,
   Columns2Icon,
   ExternalLinkIcon,
+  MinusIcon,
+  PanelRightIcon,
   PilcrowIcon,
+  PlusIcon,
   RefreshCwIcon,
   Rows3Icon,
+  Undo2Icon,
   SearchIcon,
   TextWrapIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOpenInPreferredEditor } from "../editorPreferences";
 import { type DraftId } from "../composerDraftStore";
 import { openDiffFilePrimaryAction } from "../diffFileActions";
@@ -38,6 +42,7 @@ import {
   getRenderablePatch,
   resolveDiffThemeName,
   resolveFileDiffPath,
+  resolveFileDiffPreviousPath,
 } from "../lib/diffRendering";
 import { areAllDiffFilesCollapsed, toggleAllDiffFileExpansion } from "../lib/diffCollapse";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
@@ -49,7 +54,7 @@ import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./Dif
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
 import { Button } from "./ui/button";
-import { ToggleGroup, Toggle } from "./ui/toggle-group";
+import { Toggle } from "./ui/toggle-group";
 import { Switch } from "./ui/switch";
 import {
   Combobox,
@@ -77,6 +82,11 @@ import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
 import { createGitDiffFileContentsLoader } from "../lib/diffFileContents";
+import { resolveDiffFileActions } from "../lib/diffReviewActions";
+import { PierreEntryIcon } from "./chat/PierreEntryIcon";
+import { DiffFileNavigator } from "./diffs/DiffFileNavigator";
+import { toastManager } from "./ui/toast";
+import { ensureLocalApi } from "../localApi";
 
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
@@ -88,6 +98,13 @@ const DIFF_PANEL_HEADER_UNSAFE_CSS = `
   cursor: pointer;
   justify-content: flex-start !important;
   gap: 1ch !important;
+  border-top: 1px solid var(--border) !important;
+  border-bottom: 1px solid var(--border) !important;
+  background: color-mix(in srgb, var(--background) 93%, var(--foreground)) !important;
+}
+
+[data-diffs-header] [data-change-icon] {
+  display: none !important;
 }
 
 [data-diffs-header] [data-header-content],
@@ -152,6 +169,36 @@ interface DiffPanelProps {
   initialGitScope: "branch" | "unstaged";
 }
 
+function DiffHeaderActionButton(props: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-40"
+            aria-label={props.label}
+            disabled={props.disabled}
+            data-diff-header-action="file-action"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onClick();
+            }}
+          />
+        }
+      >
+        {props.children}
+      </TooltipTrigger>
+      <TooltipPopup side="top">{props.label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 
 export default function DiffPanel({
@@ -167,6 +214,9 @@ export default function DiffPanel({
   const [wordWrap, setWordWrap] = useState(settings.wordWrap);
   const [diffIgnoreWhitespace, setDiffIgnoreWhitespace] = useState(settings.diffIgnoreWhitespace);
   const [baseRefQuery, setBaseRefQuery] = useState("");
+  const [navigatorSelectedFileKey, setNavigatorSelectedFileKey] = useState<string | null>(null);
+  const [pendingFileActionKey, setPendingFileActionKey] = useState<string | null>(null);
+  const [navigatorVisible, setNavigatorVisible] = useState(true);
   const codeViewRef = useRef<AnnotatableCodeViewHandle>(null);
   const lastCompletedTurnRefreshRef = useRef<{
     readonly threadKey: string | null;
@@ -198,6 +248,9 @@ export default function DiffPanel({
     serverConfig?.availableEditors ?? [],
   );
   const getDiffFileContents = useAtomCommand(reviewEnvironment.diffFileContents);
+  const runDiffFileAction = useAtomCommand(reviewEnvironment.runDiffFileAction, {
+    reportFailure: false,
+  });
   const gitStatusQuery = useEnvironmentQuery(
     activeThread !== null && activeThread !== undefined && activeCwd != null
       ? vcsEnvironment.status({
@@ -240,7 +293,12 @@ export default function DiffPanel({
   }, [diffSelection, orderedTurnDiffSummaries, routeThreadRef]);
 
   const selectedRunId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
-  const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
+  const selectedGitScope =
+    diffSelection.kind === "unstaged"
+      ? "unstaged"
+      : diffSelection.kind === "staged"
+        ? "staged"
+        : "branch";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
   const selectedFileRevealRequestId =
@@ -257,8 +315,10 @@ export default function DiffPanel({
   const selectedScopeLabel =
     selectedRunId === null
       ? selectedGitScope === "unstaged"
-        ? "Working tree"
-        : "Branch changes"
+        ? "Unstaged"
+        : selectedGitScope === "staged"
+          ? "Staged"
+          : "Branch changes"
       : selectedTurn?.runId === latestTurn?.runId
         ? "Latest turn"
         : `Turn ${selectedCheckpointTurnCount ?? "?"}`;
@@ -281,8 +341,10 @@ export default function DiffPanel({
   const reviewSectionTitle = selectedTurn
     ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
     : selectedGitScope === "unstaged"
-      ? "Working tree"
-      : "Branch changes";
+      ? "Unstaged"
+      : selectedGitScope === "staged"
+        ? "Staged"
+        : "Branch changes";
   const selectedCheckpointRange = useMemo(
     () =>
       typeof selectedCheckpointTurnCount === "number"
@@ -312,6 +374,7 @@ export default function DiffPanel({
             cwd: activeCwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
+            includeLocalSources: true,
           },
         })
       : null,
@@ -329,6 +392,7 @@ export default function DiffPanel({
             cwd: serverConfig.cwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
+            includeLocalSources: true,
           },
         })
       : null,
@@ -368,9 +432,39 @@ export default function DiffPanel({
     lastCompletedTurnRefreshRef.current = current;
   }, [activeThreadRefreshKey, canRefreshGitDiff, latestTurn?.runId, refreshBranchDiffPreview]);
 
-  const selectedGitSource = branchDiffPreview.data?.sources.find(
-    (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
+  const gitSources = [
+    ...(branchDiffPreview.data?.sources ?? []),
+    ...(branchDiffPreview.data?.localSources ?? []),
+  ];
+  const supportsLocalGitSources = branchDiffPreview.data?.localSources !== undefined;
+  const selectedGitSource = gitSources.find(
+    (source) =>
+      source.kind ===
+      (selectedGitScope === "unstaged"
+        ? gitSources.some((candidate) => candidate.kind === "unstaged")
+          ? "unstaged"
+          : "working-tree"
+        : selectedGitScope === "staged"
+          ? "staged"
+          : "branch-range"),
   );
+  useEffect(() => {
+    if (
+      selectedRunId === null &&
+      selectedGitScope === "staged" &&
+      branchDiffPreview.data &&
+      !supportsLocalGitSources &&
+      routeThreadRef
+    ) {
+      useDiffPanelStore.getState().selectGitScope(routeThreadRef, "unstaged");
+    }
+  }, [
+    branchDiffPreview.data,
+    routeThreadRef,
+    selectedGitScope,
+    selectedRunId,
+    supportsLocalGitSources,
+  ]);
   const loadDiffFiles = useMemo<FileDiffContentsLoader | undefined>(() => {
     const preview = branchDiffPreview.data;
     if (selectedRunId !== null || !activeThread || !preview || !selectedGitSource) {
@@ -507,6 +601,15 @@ export default function DiffPanel({
     codeViewRef.current?.scrollTo({ type: "item", id: selectedDiffFileKey, align: "start" });
   }, [codeViewMountKey, selectedDiffFileKey, selectedFileRevealRequestId]);
 
+  useEffect(() => {
+    if (
+      navigatorSelectedFileKey !== null &&
+      !codeViewFiles.some((file) => file.fileKey === navigatorSelectedFileKey)
+    ) {
+      setNavigatorSelectedFileKey(null);
+    }
+  }, [codeViewFiles, navigatorSelectedFileKey]);
+
   const openDiffFile = useCallback(
     (filePath: string) => {
       openDiffFilePrimaryAction({
@@ -559,11 +662,59 @@ export default function DiffPanel({
       ]);
   }, [collapseScopeKey, diffFileUiStateKeys, expandedDiffFileKeys]);
 
+  const selectNavigatorFile = useCallback((fileKey: string) => {
+    setNavigatorSelectedFileKey(fileKey);
+    codeViewRef.current?.scrollTo({ type: "item", id: fileKey, align: "start" });
+  }, []);
+
+  const runFileAction = useCallback(
+    async (action: "stage" | "unstage" | "revert", filePath: string, previousFilePath?: string) => {
+      if (!activeThread || !branchDiffPreview.data || pendingFileActionKey !== null) return;
+      if (action === "revert") {
+        const confirmed = await ensureLocalApi().dialogs.confirm(
+          `Revert unstaged changes to "${filePath}"?\n\nThis permanently discards the file's unstaged changes.`,
+          { variant: "destructive" },
+        );
+        if (!confirmed) return;
+      }
+      const actionKey = `${action}:${filePath}`;
+      setPendingFileActionKey(actionKey);
+      const result = await runDiffFileAction({
+        environmentId: activeThread.environmentId,
+        input: {
+          cwd: branchDiffPreview.data.cwd,
+          filePath,
+          ...(previousFilePath && previousFilePath !== filePath ? { previousFilePath } : {}),
+          action,
+        },
+      });
+      setPendingFileActionKey((current) => (current === actionKey ? null : current));
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: `Unable to ${action} file`,
+          description: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      refreshBranchDiffPreview();
+    },
+    [
+      activeThread,
+      branchDiffPreview.data,
+      pendingFileActionKey,
+      refreshBranchDiffPreview,
+      runDiffFileAction,
+    ],
+  );
+
   const selectTurn = (runId: RunId) => {
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectTurn(routeThreadRef, runId);
   };
-  const selectGitScope = (scope: "branch" | "unstaged") => {
+  const selectGitScope = (scope: "branch" | "unstaged" | "staged") => {
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectGitScope(routeThreadRef, scope);
   };
@@ -592,11 +743,26 @@ export default function DiffPanel({
               }
               onClick={() => selectGitScope("unstaged")}
             >
-              <span>Working tree</span>
+              <span>Unstaged</span>
               {selectedRunId === null && selectedGitScope === "unstaged" && (
                 <CheckIcon className="ml-auto" />
               )}
             </DropdownMenuItem>
+            {supportsLocalGitSources && (
+              <DropdownMenuItem
+                className={
+                  selectedRunId === null && selectedGitScope === "staged"
+                    ? "bg-foreground/[0.08]"
+                    : undefined
+                }
+                onClick={() => selectGitScope("staged")}
+              >
+                <span>Staged</span>
+                {selectedRunId === null && selectedGitScope === "staged" && (
+                  <CheckIcon className="ml-auto" />
+                )}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               className={
                 selectedRunId === null && selectedGitScope === "branch"
@@ -822,24 +988,50 @@ export default function DiffPanel({
             </TooltipPopup>
           </Tooltip>
         )}
-        <ToggleGroup
-          className="shrink-0 gap-1"
-          size="sm"
-          value={[diffRenderMode]}
-          onValueChange={(value) => {
-            const next = value[0];
-            if (next === "stacked" || next === "split") {
-              setDiffRenderMode(next);
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                aria-label={
+                  diffRenderMode === "split" ? "Switch to unified diff" : "Switch to split diff"
+                }
+                onClick={() => setDiffRenderMode(diffRenderMode === "split" ? "stacked" : "split")}
+              />
             }
-          }}
-        >
-          <Toggle aria-label="Stacked diff view" value="stacked" variant="ghost">
-            <Rows3Icon className="size-3.5" />
-          </Toggle>
-          <Toggle aria-label="Split diff view" value="split" variant="ghost">
-            <Columns2Icon className="size-3.5" />
-          </Toggle>
-        </ToggleGroup>
+          >
+            {diffRenderMode === "split" ? (
+              <Rows3Icon className="size-3.5" />
+            ) : (
+              <Columns2Icon className="size-3.5" />
+            )}
+          </TooltipTrigger>
+          <TooltipPopup side="top">
+            {diffRenderMode === "split" ? "Switch to unified diff" : "Switch to split diff"}
+          </TooltipPopup>
+        </Tooltip>
+        {codeViewFiles.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  aria-label={navigatorVisible ? "Hide file navigator" : "Show file navigator"}
+                  variant="ghost"
+                  size="sm"
+                  pressed={navigatorVisible}
+                  onPressedChange={(pressed) => setNavigatorVisible(Boolean(pressed))}
+                />
+              }
+            >
+              <PanelRightIcon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              {navigatorVisible ? "Hide file navigator" : "Show file navigator"}
+            </TooltipPopup>
+          </Tooltip>
+        )}
         <Tooltip>
           <TooltipTrigger
             render={
@@ -921,8 +1113,10 @@ export default function DiffPanel({
                     selectedTurn
                       ? "Loading checkpoint diff..."
                       : selectedGitScope === "unstaged"
-                        ? "Loading working tree diff..."
-                        : "Loading branch diff..."
+                        ? "Loading unstaged diff..."
+                        : selectedGitScope === "staged"
+                          ? "Loading staged diff..."
+                          : "Loading branch diff..."
                   }
                 />
               ) : (
@@ -935,152 +1129,206 @@ export default function DiffPanel({
                 </div>
               )
             ) : renderablePatch.kind === "files" ? (
-              <div
-                className="min-h-0 flex-1"
-                onClickCapture={(event) => {
-                  const composedPath = event.nativeEvent.composedPath?.() ?? [];
-                  const clickedAction = composedPath.some(
-                    (node) =>
-                      node instanceof HTMLElement && node.hasAttribute("data-diff-header-action"),
-                  );
-                  if (clickedAction) return;
-
-                  const header = composedPath.find(
-                    (node): node is HTMLElement =>
-                      node instanceof HTMLElement && node.hasAttribute("data-diffs-header"),
-                  );
-                  if (!header) return;
-
-                  const root = header.getRootNode();
-                  const host = root instanceof ShadowRoot ? root.host : null;
-                  const fileKey =
-                    host instanceof HTMLElement
-                      ? host.querySelector<HTMLElement>("[data-diff-file-key]")?.dataset.diffFileKey
-                      : undefined;
-                  if (fileKey) toggleDiffFileCollapsed(fileKey);
-                }}
-              >
-                <AnnotatableCodeView
-                  key={collapseScopeKey ?? reviewSectionId}
-                  viewerRef={codeViewRef}
-                  codeViewKey={codeViewMountKey}
-                  className="h-full min-h-0 overflow-auto"
-                  files={codeViewFiles}
-                  sectionId={reviewSectionId}
-                  sectionTitle={reviewSectionTitle}
-                  composerDraftTarget={composerDraftTarget}
-                  unsafeCSSExtra={DIFF_PANEL_HEADER_UNSAFE_CSS}
-                  renderHeaderPrefix={(fileDiff, fileKey, collapsed) => {
-                    const filePath = resolveFileDiffPath(fileDiff);
-                    const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
-                    if (!uiStateKey) return null;
-                    return (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              type="button"
-                              className={cn(
-                                "-ms-0.5 inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 transition-colors hover:bg-foreground/10 focus-visible:outline-hidden",
-                                getDiffCollapseIconClassName(fileDiff),
-                              )}
-                              aria-label={collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`}
-                              aria-expanded={!collapsed}
-                              data-diff-file-key={uiStateKey}
-                              data-diff-header-action="toggle-collapse"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                toggleDiffFileCollapsed(uiStateKey);
-                              }}
-                            />
-                          }
-                        >
-                          {collapsed ? (
-                            <ChevronRightIcon className="size-4" />
-                          ) : (
-                            <ChevronDownIcon className="size-4" />
-                          )}
-                        </TooltipTrigger>
-                        <TooltipPopup side="top">
-                          {collapsed ? "Expand diff" : "Collapse diff"}
-                        </TooltipPopup>
-                      </Tooltip>
+              <div className="flex min-h-0 flex-1">
+                <div
+                  className="min-h-0 min-w-0 flex-1"
+                  onClickCapture={(event) => {
+                    const composedPath = event.nativeEvent.composedPath?.() ?? [];
+                    const clickedAction = composedPath.some(
+                      (node) =>
+                        node instanceof HTMLElement && node.hasAttribute("data-diff-header-action"),
                     );
+                    if (clickedAction) return;
+
+                    const header = composedPath.find(
+                      (node): node is HTMLElement =>
+                        node instanceof HTMLElement && node.hasAttribute("data-diffs-header"),
+                    );
+                    if (!header) return;
+
+                    const root = header.getRootNode();
+                    const host = root instanceof ShadowRoot ? root.host : null;
+                    const fileKey =
+                      host instanceof HTMLElement
+                        ? host.querySelector<HTMLElement>("[data-diff-file-key]")?.dataset
+                            .diffFileKey
+                        : undefined;
+                    if (fileKey) toggleDiffFileCollapsed(fileKey);
                   }}
-                  renderHeaderFilenameSuffix={(fileDiff, fileKey) => {
-                    const filePath = resolveFileDiffPath(fileDiff);
-                    const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
-                    if (!uiStateKey) return null;
-                    const viewed = viewedDiffFileKeys.has(uiStateKey);
-                    return (
-                      <div className="flex items-center gap-3 transition-opacity duration-100">
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <button
-                                type="button"
-                                className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden"
-                                aria-label={`Open ${filePath} in a tab`}
-                                data-diff-header-action="open-file"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  openDiffFile(filePath);
-                                }}
-                              />
-                            }
-                          >
-                            <ExternalLinkIcon className="size-3.5" />
-                          </TooltipTrigger>
-                          <TooltipPopup side="top">Open file in a tab</TooltipPopup>
-                        </Tooltip>
-                        {!viewed && (
+                >
+                  <AnnotatableCodeView
+                    key={collapseScopeKey ?? reviewSectionId}
+                    viewerRef={codeViewRef}
+                    codeViewKey={codeViewMountKey}
+                    className="h-full min-h-0 overflow-auto"
+                    files={codeViewFiles}
+                    sectionId={reviewSectionId}
+                    sectionTitle={reviewSectionTitle}
+                    composerDraftTarget={composerDraftTarget}
+                    unsafeCSSExtra={DIFF_PANEL_HEADER_UNSAFE_CSS}
+                    renderHeaderPrefix={(fileDiff, fileKey, collapsed) => {
+                      const filePath = resolveFileDiffPath(fileDiff);
+                      const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
+                      if (!uiStateKey) return null;
+                      return (
+                        <div className="flex items-center gap-1">
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "-ms-0.5 inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 transition-colors hover:bg-foreground/10 focus-visible:outline-hidden",
+                                    getDiffCollapseIconClassName(fileDiff),
+                                  )}
+                                  aria-label={
+                                    collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`
+                                  }
+                                  aria-expanded={!collapsed}
+                                  data-diff-file-key={uiStateKey}
+                                  data-diff-header-action="toggle-collapse"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    toggleDiffFileCollapsed(uiStateKey);
+                                  }}
+                                />
+                              }
+                            >
+                              {collapsed ? (
+                                <ChevronRightIcon className="size-4" />
+                              ) : (
+                                <ChevronDownIcon className="size-4" />
+                              )}
+                            </TooltipTrigger>
+                            <TooltipPopup side="top">
+                              {collapsed ? "Expand diff" : "Collapse diff"}
+                            </TooltipPopup>
+                          </Tooltip>
+                          <PierreEntryIcon
+                            pathValue={filePath}
+                            kind="file"
+                            theme={resolvedTheme}
+                            className="size-3.5"
+                          />
+                        </div>
+                      );
+                    }}
+                    renderHeaderFilenameSuffix={(fileDiff, fileKey) => {
+                      const filePath = resolveFileDiffPath(fileDiff);
+                      const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
+                      if (!uiStateKey) return null;
+                      return (
+                        <div className="flex items-center gap-3 transition-opacity duration-100">
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                                  aria-label={`Open ${filePath} in a tab`}
+                                  data-diff-header-action="open-file"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openDiffFile(filePath);
+                                  }}
+                                />
+                              }
+                            >
+                              <ExternalLinkIcon className="size-3.5" />
+                            </TooltipTrigger>
+                            <TooltipPopup side="top">Open file in a tab</TooltipPopup>
+                          </Tooltip>
+                        </div>
+                      );
+                    }}
+                    renderHeaderMetadata={(fileDiff, fileKey) => {
+                      const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
+                      if (!uiStateKey) return null;
+                      const filePath = resolveFileDiffPath(fileDiff);
+                      const previousFilePath = resolveFileDiffPreviousPath(fileDiff);
+                      const viewed = viewedDiffFileKeys.has(uiStateKey);
+                      const fileActions = supportsLocalGitSources
+                        ? resolveDiffFileActions({
+                            scope: selectedGitScope,
+                            changeType: fileDiff.type,
+                            isCheckpoint: selectedRunId !== null,
+                          })
+                        : [];
+                      return (
+                        <div className="flex shrink-0 items-center gap-1 pr-2">
+                          {fileActions.includes("revert") && (
+                            <DiffHeaderActionButton
+                              label="Revert file"
+                              disabled={pendingFileActionKey !== null}
+                              onClick={() =>
+                                void runFileAction("revert", filePath, previousFilePath)
+                              }
+                            >
+                              <Undo2Icon className="size-3.5" />
+                            </DiffHeaderActionButton>
+                          )}
+                          {fileActions.includes("stage") && (
+                            <DiffHeaderActionButton
+                              label="Stage file"
+                              disabled={pendingFileActionKey !== null}
+                              onClick={() =>
+                                void runFileAction("stage", filePath, previousFilePath)
+                              }
+                            >
+                              <PlusIcon className="size-3.5" />
+                            </DiffHeaderActionButton>
+                          )}
+                          {fileActions.includes("unstage") && (
+                            <DiffHeaderActionButton
+                              label="Unstage file"
+                              disabled={pendingFileActionKey !== null}
+                              onClick={() =>
+                                void runFileAction("unstage", filePath, previousFilePath)
+                              }
+                            >
+                              <MinusIcon className="size-3.5" />
+                            </DiffHeaderActionButton>
+                          )}
                           <button
                             type="button"
-                            className="absolute top-1/2 right-4 shrink-0 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden"
-                            aria-label={`Mark ${filePath} as viewed`}
+                            className="ml-1 inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-sm border-0 bg-transparent p-0 text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={
+                              viewed
+                                ? `Mark ${filePath} as not viewed`
+                                : `Mark ${filePath} as viewed`
+                            }
+                            aria-pressed={viewed}
                             data-diff-header-action="toggle-viewed"
                             onClick={(event) => {
                               event.stopPropagation();
                               toggleDiffFileViewed(uiStateKey);
                             }}
                           >
-                            Mark as viewed
+                            {viewed && <CheckIcon className="size-3.5" />}
+                            <span>{viewed ? "Viewed" : "Mark as viewed"}</span>
                           </button>
-                        )}
-                      </div>
-                    );
-                  }}
-                  renderHeaderMetadata={(fileDiff, fileKey) => {
-                    const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
-                    if (!uiStateKey || !viewedDiffFileKeys.has(uiStateKey)) return null;
-                    const filePath = resolveFileDiffPath(fileDiff);
-                    return (
-                      <button
-                        type="button"
-                        className="absolute top-1/2 right-4 inline-flex shrink-0 -translate-y-1/2 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden"
-                        aria-label={`Mark ${filePath} as not viewed`}
-                        aria-pressed="true"
-                        data-diff-header-action="toggle-viewed"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleDiffFileViewed(uiStateKey);
-                        }}
-                      >
-                        <CheckIcon className="size-3.5" />
-                        <span>Marked as viewed</span>
-                      </button>
-                    );
-                  }}
-                  options={{
-                    diffStyle: diffRenderMode === "split" ? "split" : "unified",
-                    lineDiffType: "none",
-                    overflow: wordWrap ? "wrap" : "scroll",
-                    theme: resolveDiffThemeName(resolvedTheme),
-                    themeType: resolvedTheme as DiffThemeType,
-                    stickyHeaders: true,
-                    ...(loadDiffFiles ? { loadDiffFiles } : {}),
-                  }}
-                />
+                        </div>
+                      );
+                    }}
+                    options={{
+                      diffStyle: diffRenderMode === "split" ? "split" : "unified",
+                      lineDiffType: "none",
+                      overflow: wordWrap ? "wrap" : "scroll",
+                      theme: resolveDiffThemeName(resolvedTheme),
+                      themeType: resolvedTheme as DiffThemeType,
+                      stickyHeaders: true,
+                      ...(loadDiffFiles ? { loadDiffFiles } : {}),
+                    }}
+                  />
+                </div>
+                {navigatorVisible && (
+                  <DiffFileNavigator
+                    files={codeViewFiles}
+                    selectedFileKey={navigatorSelectedFileKey}
+                    theme={resolvedTheme}
+                    onSelectFile={selectNavigatorFile}
+                  />
+                )}
               </div>
             ) : (
               <div className="min-h-0 flex-1 overflow-auto p-2">

@@ -56,6 +56,7 @@ import {
 import {
   ReviewDiffFileContentsInput,
   ReviewDiffFileContentsResult,
+  ReviewDiffFileActionInput,
   ReviewDiffPreviewError,
   ReviewDiffPreviewInput,
   ReviewDiffPreviewResult,
@@ -250,6 +251,7 @@ export const WS_METHODS = {
   // Review methods
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
+  reviewRunDiffFileAction: "review.runDiffFileAction",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -788,6 +790,11 @@ export const WsReviewGetDiffFileContentsRpc = Rpc.make(WS_METHODS.reviewGetDiffF
   error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
 });
 
+export const WsReviewRunDiffFileActionRpc = Rpc.make(WS_METHODS.reviewRunDiffFileAction, {
+  payload: ReviewDiffFileActionInput,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -1156,6 +1163,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsInitRpc,
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
+  WsReviewRunDiffFileActionRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,
