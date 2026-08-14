@@ -606,17 +606,16 @@ export function firstValidTimestamp(
   return null;
 }
 
-// v2 sort: static creation order, newest thread on top. Activity NEVER
-// reorders the list — a row holds its position from open until settled, so
-// the screen only moves at lifecycle transitions. Status (including pending
-// approval) is carried by each card's edge strip, not by position.
-export function sortThreadsForSidebar<
-  T extends { readonly id: string; readonly createdAt: string },
->(threads: readonly T[]): T[] {
+// Active threads default to static creation order so rows do not move while
+// agents work. Activity order follows the v1 rule: last user message only.
+export function sortThreadsForSidebar<T extends { readonly id: string } & ThreadSortInput>(
+  threads: readonly T[],
+  sortOrder: SidebarThreadSortOrder,
+): T[] {
+  const timestamp = (thread: T) => getThreadSortTimestamp(thread, sortOrder);
+
   return [...threads].toSorted(
-    (left, right) =>
-      parseTimestampMs(right.createdAt) - parseTimestampMs(left.createdAt) ||
-      left.id.localeCompare(right.id),
+    (left, right) => timestamp(right) - timestamp(left) || left.id.localeCompare(right.id),
   );
 }
 

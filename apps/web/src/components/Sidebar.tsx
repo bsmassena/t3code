@@ -30,10 +30,11 @@ import {
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
-import type { TimestampFormat } from "@t3tools/contracts/settings";
+import type { SidebarThreadSortOrder, TimestampFormat } from "@t3tools/contracts/settings";
 import {
   AlarmClockIcon,
   AlarmClockOffIcon,
+  ArrowUpDownIcon,
   CheckIcon,
   ChevronDownIcon,
   CircleAlertIcon,
@@ -99,7 +100,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -1603,8 +1604,10 @@ export default function Sidebar() {
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
+  const sidebarActiveThreadSortOrder = useClientSettings((s) => s.sidebarActiveThreadSortOrder);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const updateClientSettings = useUpdateClientSettings();
   const {
     settleThread,
     unsettleThread,
@@ -1975,7 +1978,7 @@ export default function Sidebar() {
           )
           .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
       ),
-      activeThreads: sortThreadsForSidebar(active),
+      activeThreads: sortThreadsForSidebar(active, sidebarActiveThreadSortOrder),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
         (left, right) =>
@@ -1989,6 +1992,7 @@ export default function Sidebar() {
     autoSettleAfterDays,
     changeRequestStateByKey,
     nowMinute,
+    sidebarActiveThreadSortOrder,
     scopedProjectKeys,
     serverConfigs,
     snoozeWakeTick,
@@ -3282,6 +3286,37 @@ export default function Sidebar() {
                   </Button>
                 ) : null}
               </div>
+              <Menu>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <MenuTrigger
+                        className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-sidebar-muted-foreground outline-none transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                        aria-label="Sort threads"
+                      />
+                    }
+                  >
+                    <ArrowUpDownIcon className="size-4" />
+                  </TooltipTrigger>
+                  <TooltipPopup side="right">Sort threads</TooltipPopup>
+                </Tooltip>
+                <MenuPopup align="end" side="bottom" className="min-w-44">
+                  <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                    Sort threads
+                  </div>
+                  <MenuRadioGroup
+                    value={sidebarActiveThreadSortOrder}
+                    onValueChange={(value) => {
+                      updateClientSettings({
+                        sidebarActiveThreadSortOrder: value as SidebarThreadSortOrder,
+                      });
+                    }}
+                  >
+                    <MenuRadioItem value="created_at">Created</MenuRadioItem>
+                    <MenuRadioItem value="updated_at">Last user message</MenuRadioItem>
+                  </MenuRadioGroup>
+                </MenuPopup>
+              </Menu>
               <div className="shrink-0">
                 <Tooltip>
                   <TooltipTrigger
