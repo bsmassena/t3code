@@ -2707,7 +2707,7 @@ function ChatViewContent(props: ChatViewProps) {
     activeProject !== null &&
     (routeKind === "draft" || settings.persistComposerContextStrip);
   const initialDiffPanelGitScope =
-    gitStatusQuery.data?.hasWorkingTreeChanges === true ? "unstaged" : "branch";
+    gitStatusQuery.data?.hasWorkingTreeChanges === true ? "working-tree" : "branch";
   const diffPanelGitStatusResolutionKey = gitStatusQuery.data ? "resolved" : "pending";
   const terminalShortcutLabelOptions = useMemo(
     () => ({

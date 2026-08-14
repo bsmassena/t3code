@@ -42,6 +42,12 @@ describe("diffPanelStore", () => {
     ).toEqual({ kind: "branch", baseRef: null });
   });
 
+  it("defaults dirty threads to the combined working tree", () => {
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF, true),
+    ).toEqual({ kind: "working-tree" });
+  });
+
   it("clears incompatible selection fields when changing scopes", () => {
     const store = useDiffPanelStore.getState();
     store.selectTurn(THREAD_REF, RunId.make("turn-1"), "src/app.ts");
@@ -63,6 +69,14 @@ describe("diffPanelStore", () => {
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
     ).toEqual({ kind: "staged" });
+  });
+
+  it("selects the combined working tree as a distinct scope", () => {
+    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "working-tree");
+
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "working-tree" });
   });
 
   it("increments the reveal request when opening the same turn file again", () => {

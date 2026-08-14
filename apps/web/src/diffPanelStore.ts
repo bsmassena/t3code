@@ -7,6 +7,7 @@ import { resolveStorage } from "./lib/storage";
 
 export type DiffPanelSelection =
   | { kind: "branch"; baseRef: string | null }
+  | { kind: "working-tree" }
   | { kind: "unstaged" }
   | { kind: "staged" }
   | { kind: "turn"; turnId: RunId; filePath: string | null; revealRequestId: number };
@@ -19,7 +20,7 @@ export interface DiffFileUiState {
 }
 
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
-const DEFAULT_WORKING_TREE_SELECTION: DiffPanelSelection = { kind: "unstaged" };
+const DEFAULT_WORKING_TREE_SELECTION: DiffPanelSelection = { kind: "working-tree" };
 const EMPTY_DIFF_FILE_UI_STATE: DiffFileUiState = {
   expandedFileKeys: [],
   viewedFileKeys: [],
@@ -31,7 +32,10 @@ interface DiffPanelStoreState {
   diffFileUiStateByScopeKey: Record<string, DiffFileUiState>;
   diffRenderMode: DiffRenderMode;
   setDiffRenderMode: (mode: DiffRenderMode) => void;
-  selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged" | "staged") => void;
+  selectGitScope: (
+    ref: ScopedThreadRef,
+    scope: "branch" | "working-tree" | "unstaged" | "staged",
+  ) => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: RunId, filePath?: string) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<RunId>) => void;
