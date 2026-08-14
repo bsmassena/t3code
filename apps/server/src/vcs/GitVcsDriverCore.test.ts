@@ -896,6 +896,24 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         yield* writeTextFile(cwd, "README.md", "changed\n");
         yield* driver.runReviewDiffFileAction({ cwd, filePath: "README.md", action: "revert" });
         assert.strictEqual(yield* git(cwd, ["diff", "--name-only"]), "");
+
+        yield* writeTextFile(cwd, "README.md", "staged change\n");
+        yield* driver.runReviewDiffFileAction({ cwd, filePath: "README.md", action: "stage" });
+        yield* driver.runReviewDiffFileAction({
+          cwd,
+          filePath: "README.md",
+          action: "revert-staged",
+        });
+        assert.strictEqual(yield* git(cwd, ["diff", "--cached", "--name-only"]), "");
+        assert.strictEqual(yield* git(cwd, ["diff", "--name-only"]), "");
+
+        yield* writeTextFile(cwd, "added.ts", "added\n");
+        yield* driver.runReviewDiffFileAction({ cwd, filePath: "added.ts", action: "stage" });
+        yield* driver.runReviewDiffFileAction({
+          cwd,
+          filePath: "added.ts",
+          action: "revert-staged",
+        });
         assert.strictEqual(
           yield* git(cwd, ["ls-files", "--others", "--exclude-standard"]),
           "one.ts\ntwo.ts",

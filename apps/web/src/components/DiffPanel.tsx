@@ -86,7 +86,6 @@ import { resolveDiffFileActions } from "../lib/diffReviewActions";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import { DiffFileNavigator } from "./diffs/DiffFileNavigator";
 import { toastManager } from "./ui/toast";
-import { ensureLocalApi } from "../localApi";
 
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
@@ -676,15 +675,12 @@ export default function DiffPanel({
   }, []);
 
   const runFileAction = useCallback(
-    async (action: "stage" | "unstage" | "revert", filePath: string, previousFilePath?: string) => {
+    async (
+      action: "stage" | "unstage" | "revert" | "revert-staged",
+      filePath: string,
+      previousFilePath?: string,
+    ) => {
       if (!activeThread || !branchDiffPreview.data || pendingFileActionKey !== null) return;
-      if (action === "revert") {
-        const confirmed = await ensureLocalApi().dialogs.confirm(
-          `Revert unstaged changes to "${filePath}"?\n\nThis permanently discards the file's unstaged changes.`,
-          { variant: "destructive" },
-        );
-        if (!confirmed) return;
-      }
       const actionKey = `${action}:${filePath}`;
       setPendingFileActionKey(actionKey);
       const result = await runDiffFileAction({
@@ -702,7 +698,7 @@ export default function DiffPanel({
         const error = squashAtomCommandFailure(result);
         toastManager.add({
           type: "error",
-          title: `Unable to ${action} file`,
+          title: `Unable to ${action === "revert-staged" ? "revert" : action} file`,
           description: error instanceof Error ? error.message : String(error),
         });
         return;
@@ -1290,7 +1286,11 @@ export default function DiffPanel({
                               label="Revert file"
                               disabled={pendingFileActionKey !== null}
                               onClick={() =>
-                                void runFileAction("revert", filePath, previousFilePath)
+                                void runFileAction(
+                                  selectedGitScope === "staged" ? "revert-staged" : "revert",
+                                  filePath,
+                                  previousFilePath,
+                                )
                               }
                             >
                               <Undo2Icon className="size-3.5" />

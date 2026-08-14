@@ -22,10 +22,10 @@ describe("resolveDiffFileActions", () => {
     ).toEqual(["stage"]);
   });
 
-  it("offers only unstage for staged files", () => {
+  it("offers revert and unstage for staged files", () => {
     expect(
       resolveDiffFileActions({ scope: "staged", changeType: "deleted", isCheckpoint: false }),
-    ).toEqual(["unstage"]);
+    ).toEqual(["revert", "unstage"]);
   });
 
   it("keeps branch and checkpoint diffs read-only", () => {
