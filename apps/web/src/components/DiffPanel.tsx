@@ -169,7 +169,7 @@ const DIFF_PANEL_HEADER_UNSAFE_CSS = `
 interface DiffPanelProps {
   mode?: DiffPanelMode;
   composerDraftTarget: ScopedThreadRef | DraftId;
-  initialGitScope: "branch" | "unstaged";
+  initialGitScope: "branch" | "working-tree";
   workspaceMutationId: string | null;
 }
 
@@ -267,7 +267,7 @@ export default function DiffPanel({
     selectThreadDiffPanelSelection(
       state.byThreadKey,
       routeThreadRef,
-      initialGitScope === "unstaged",
+      initialGitScope === "working-tree",
     ),
   );
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
@@ -298,11 +298,13 @@ export default function DiffPanel({
 
   const selectedRunId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
   const selectedGitScope =
-    diffSelection.kind === "unstaged"
-      ? "unstaged"
-      : diffSelection.kind === "staged"
-        ? "staged"
-        : "branch";
+    diffSelection.kind === "working-tree"
+      ? "working-tree"
+      : diffSelection.kind === "unstaged"
+        ? "unstaged"
+        : diffSelection.kind === "staged"
+          ? "staged"
+          : "branch";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
   const selectedFileRevealRequestId =
@@ -318,11 +320,13 @@ export default function DiffPanel({
   const latestTurn = orderedTurnDiffSummaries[0];
   const selectedScopeLabel =
     selectedRunId === null
-      ? selectedGitScope === "unstaged"
-        ? "Unstaged"
-        : selectedGitScope === "staged"
-          ? "Staged"
-          : "Branch changes"
+      ? selectedGitScope === "working-tree"
+        ? "Working tree"
+        : selectedGitScope === "unstaged"
+          ? "Unstaged"
+          : selectedGitScope === "staged"
+            ? "Staged"
+            : "Branch changes"
       : selectedTurn?.runId === latestTurn?.runId
         ? "Latest turn"
         : `Turn ${selectedCheckpointTurnCount ?? "?"}`;
@@ -344,11 +348,13 @@ export default function DiffPanel({
   const codeViewMountKey = collapseScopeKey ?? reviewSectionId;
   const reviewSectionTitle = selectedTurn
     ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
-    : selectedGitScope === "unstaged"
-      ? "Unstaged"
-      : selectedGitScope === "staged"
-        ? "Staged"
-        : "Branch changes";
+    : selectedGitScope === "working-tree"
+      ? "Working tree"
+      : selectedGitScope === "unstaged"
+        ? "Unstaged"
+        : selectedGitScope === "staged"
+          ? "Staged"
+          : "Branch changes";
   const selectedCheckpointRange = useMemo(
     () =>
       typeof selectedCheckpointTurnCount === "number"
@@ -433,23 +439,25 @@ export default function DiffPanel({
   const selectedGitSource = gitSources.find(
     (source) =>
       source.kind ===
-      (selectedGitScope === "unstaged"
-        ? gitSources.some((candidate) => candidate.kind === "unstaged")
-          ? "unstaged"
-          : "working-tree"
-        : selectedGitScope === "staged"
-          ? "staged"
-          : "branch-range"),
+      (selectedGitScope === "working-tree"
+        ? "working-tree"
+        : selectedGitScope === "unstaged"
+          ? gitSources.some((candidate) => candidate.kind === "unstaged")
+            ? "unstaged"
+            : "working-tree"
+          : selectedGitScope === "staged"
+            ? "staged"
+            : "branch-range"),
   );
   useEffect(() => {
     if (
       selectedRunId === null &&
-      selectedGitScope === "staged" &&
+      (selectedGitScope === "staged" || selectedGitScope === "unstaged") &&
       branchDiffPreview.data &&
       !supportsLocalGitSources &&
       routeThreadRef
     ) {
-      useDiffPanelStore.getState().selectGitScope(routeThreadRef, "unstaged");
+      useDiffPanelStore.getState().selectGitScope(routeThreadRef, "working-tree");
     }
   }, [
     branchDiffPreview.data,
@@ -717,7 +725,7 @@ export default function DiffPanel({
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectTurn(routeThreadRef, runId);
   };
-  const selectGitScope = (scope: "branch" | "unstaged" | "staged") => {
+  const selectGitScope = (scope: "branch" | "working-tree" | "unstaged" | "staged") => {
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectGitScope(routeThreadRef, scope);
   };
@@ -740,9 +748,26 @@ export default function DiffPanel({
           <DropdownMenuContent align="start" className="w-60">
             <DropdownMenuItem
               className={
+                selectedRunId === null && selectedGitScope === "working-tree"
+                  ? "bg-foreground/[0.08]"
+                  : undefined
+              }
+              onClick={() => selectGitScope("working-tree")}
+            >
+              <span>Working tree</span>
+              {selectedRunId === null && selectedGitScope === "working-tree" && (
+                <CheckIcon className="ml-auto" />
+              )}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className={
                 selectedRunId === null && selectedGitScope === "unstaged"
                   ? "bg-foreground/[0.08]"
                   : undefined
+              }
+              disabled={!supportsLocalGitSources}
+              title={
+                supportsLocalGitSources ? undefined : "Unstaged diffs require an updated server."
               }
               onClick={() => selectGitScope("unstaged")}
             >
@@ -751,21 +776,23 @@ export default function DiffPanel({
                 <CheckIcon className="ml-auto" />
               )}
             </DropdownMenuItem>
-            {supportsLocalGitSources && (
-              <DropdownMenuItem
-                className={
-                  selectedRunId === null && selectedGitScope === "staged"
-                    ? "bg-foreground/[0.08]"
-                    : undefined
-                }
-                onClick={() => selectGitScope("staged")}
-              >
-                <span>Staged</span>
-                {selectedRunId === null && selectedGitScope === "staged" && (
-                  <CheckIcon className="ml-auto" />
-                )}
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem
+              className={
+                selectedRunId === null && selectedGitScope === "staged"
+                  ? "bg-foreground/[0.08]"
+                  : undefined
+              }
+              disabled={!supportsLocalGitSources}
+              title={
+                supportsLocalGitSources ? undefined : "Staged diffs require an updated server."
+              }
+              onClick={() => selectGitScope("staged")}
+            >
+              <span>Staged</span>
+              {selectedRunId === null && selectedGitScope === "staged" && (
+                <CheckIcon className="ml-auto" />
+              )}
+            </DropdownMenuItem>
             <DropdownMenuItem
               className={
                 selectedRunId === null && selectedGitScope === "branch"
@@ -1131,11 +1158,13 @@ export default function DiffPanel({
                   label={
                     selectedTurn
                       ? "Loading checkpoint diff..."
-                      : selectedGitScope === "unstaged"
-                        ? "Loading unstaged diff..."
-                        : selectedGitScope === "staged"
-                          ? "Loading staged diff..."
-                          : "Loading branch diff..."
+                      : selectedGitScope === "working-tree"
+                        ? "Loading working tree diff..."
+                        : selectedGitScope === "unstaged"
+                          ? "Loading unstaged diff..."
+                          : selectedGitScope === "staged"
+                            ? "Loading staged diff..."
+                            : "Loading branch diff..."
                   }
                 />
               ) : (

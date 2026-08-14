@@ -35,5 +35,8 @@ describe("resolveDiffFileActions", () => {
     expect(
       resolveDiffFileActions({ scope: "unstaged", changeType: "change", isCheckpoint: true }),
     ).toEqual([]);
+    expect(
+      resolveDiffFileActions({ scope: "working-tree", changeType: "change", isCheckpoint: false }),
+    ).toEqual([]);
   });
 });
