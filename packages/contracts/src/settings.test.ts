@@ -173,8 +173,24 @@ describe("ClientSettings environment identification", () => {
 
 describe("ClientSettings sidebar", () => {
   it("defaults to the current sidebar", () => {
-    expect(decodeClientSettings({}).legacySidebarEnabled).toBe(false);
+    const settings = decodeClientSettings({});
+    expect(settings.legacySidebarEnabled).toBe(false);
+    expect(settings.sidebarActiveThreadSortOrder).toBe("created_at");
   });
+
+  it.each(["created_at", "updated_at"] as const)(
+    "accepts the active thread sort order: %s",
+    (sortOrder) => {
+      expect(
+        decodeClientSettings({ sidebarActiveThreadSortOrder: sortOrder })
+          .sidebarActiveThreadSortOrder,
+      ).toBe(sortOrder);
+      expect(
+        decodeClientSettingsPatch({ sidebarActiveThreadSortOrder: sortOrder })
+          .sidebarActiveThreadSortOrder,
+      ).toBe(sortOrder);
+    },
+  );
 
   it("drops the retired sidebar v2 beta keys, resetting everyone to the default", () => {
     const decoded = decodeClientSettings({
