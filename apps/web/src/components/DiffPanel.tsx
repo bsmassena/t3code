@@ -617,6 +617,15 @@ export default function DiffPanel({
     }
   }, [codeViewFiles, navigatorSelectedFileKey]);
 
+  useEffect(() => {
+    if (!navigatorSelectedFileKey) return;
+    codeViewRef.current?.scrollTo({
+      type: "item",
+      id: navigatorSelectedFileKey,
+      align: "start",
+    });
+  }, [codeViewFiles, navigatorSelectedFileKey]);
+
   const openDiffFile = useCallback(
     (filePath: string) => {
       openDiffFilePrimaryAction({
@@ -669,10 +678,20 @@ export default function DiffPanel({
       ]);
   }, [collapseScopeKey, diffFileUiStateKeys, expandedDiffFileKeys]);
 
-  const selectNavigatorFile = useCallback((fileKey: string) => {
-    setNavigatorSelectedFileKey(fileKey);
-    codeViewRef.current?.scrollTo({ type: "item", id: fileKey, align: "start" });
-  }, []);
+  const selectNavigatorFile = useCallback(
+    (fileKey: string) => {
+      setNavigatorSelectedFileKey(fileKey);
+      const fileUiStateKey = uiStateKeyByRenderKey.get(fileKey);
+      if (collapseScopeKey && fileUiStateKey && !expandedDiffFileKeys.has(fileUiStateKey)) {
+        useDiffPanelStore
+          .getState()
+          .setExpandedDiffFileKeys(collapseScopeKey, [...expandedDiffFileKeys, fileUiStateKey]);
+        return;
+      }
+      codeViewRef.current?.scrollTo({ type: "item", id: fileKey, align: "start" });
+    },
+    [collapseScopeKey, expandedDiffFileKeys, uiStateKeyByRenderKey],
+  );
 
   const runFileAction = useCallback(
     async (
