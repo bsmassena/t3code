@@ -2676,7 +2676,17 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ? ["--literal-pathspecs", "add", "--", ...filePaths]
         : input.action === "unstage"
           ? ["--literal-pathspecs", "reset", "--", ...filePaths]
-          : ["--literal-pathspecs", "restore", "--worktree", "--", ...filePaths];
+          : input.action === "revert-staged"
+            ? [
+                "--literal-pathspecs",
+                "restore",
+                "--source=HEAD",
+                "--staged",
+                "--worktree",
+                "--",
+                ...filePaths,
+              ]
+            : ["--literal-pathspecs", "restore", "--worktree", "--", ...filePaths];
     yield* executeGit(`GitVcsDriver.runReviewDiffFileAction.${input.action}`, repositoryRoot, args);
   });
 
