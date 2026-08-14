@@ -70,7 +70,7 @@ export const ReviewDiffFileActionInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   filePath: TrimmedNonEmptyString,
   previousFilePath: Schema.optional(TrimmedNonEmptyString),
-  action: Schema.Literals(["stage", "unstage", "revert"]),
+  action: Schema.Literals(["stage", "unstage", "revert", "revert-staged"]),
 });
 export type ReviewDiffFileActionInput = typeof ReviewDiffFileActionInput.Type;
 

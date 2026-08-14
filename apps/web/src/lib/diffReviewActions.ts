@@ -8,7 +8,7 @@ export function resolveDiffFileActions(input: {
   readonly isCheckpoint: boolean;
 }): ReadonlyArray<DiffFileAction> {
   if (input.isCheckpoint || input.scope === "branch" || input.scope === "working-tree") return [];
-  if (input.scope === "staged") return ["unstage"];
+  if (input.scope === "staged") return ["revert", "unstage"];
   return input.changeType === "change" || input.changeType === "deleted"
     ? ["revert", "stage"]
     : ["stage"];
