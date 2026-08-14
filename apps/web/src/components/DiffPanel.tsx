@@ -37,7 +37,6 @@ import { useTheme } from "../hooks/useTheme";
 import {
   buildFileDiffRenderKey,
   buildFileDiffUiStateKey,
-  getDiffCollapseIconClassName,
   getDiffLineStat,
   getRenderablePatch,
   resolveDiffThemeName,
@@ -97,9 +96,13 @@ const DIFF_PANEL_HEADER_UNSAFE_CSS = `
   cursor: pointer;
   justify-content: flex-start !important;
   gap: 1ch !important;
-  border-top: 1px solid var(--border) !important;
-  border-bottom: 1px solid var(--border) !important;
-  background: color-mix(in srgb, var(--background) 93%, var(--foreground)) !important;
+  border-top: 0 !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent) !important;
+  background: var(--background) !important;
+}
+
+[data-diffs-header]:hover {
+  background: color-mix(in srgb, var(--background) 98%, var(--foreground)) !important;
 }
 
 [data-diffs-header] [data-change-icon] {
@@ -133,6 +136,18 @@ const DIFF_PANEL_HEADER_UNSAFE_CSS = `
   order: 4;
 }
 
+[data-diffs-header]:not(:has([data-additions-count])) [data-deletions-count]::before {
+  content: "+0";
+  color: var(--diffs-addition-base);
+  margin-right: 1ch;
+}
+
+[data-diffs-header]:not(:has([data-deletions-count])) [data-additions-count]::after {
+  content: "-0";
+  color: var(--diffs-deletion-base);
+  margin-left: 1ch;
+}
+
 [data-diffs-header] slot[name="header-filename-suffix"] {
   display: flex;
   min-width: 0;
@@ -147,8 +162,19 @@ const DIFF_PANEL_HEADER_UNSAFE_CSS = `
 }
 
 [data-diffs-header] slot[name="header-metadata"] {
+  --diff-file-action-opacity: 1;
+  --diff-file-action-pointer-events: auto;
+  --diff-mark-as-viewed-opacity: 1;
+  --diff-mark-as-viewed-pointer-events: auto;
   display: block;
   order: 6;
+}
+
+[data-diffs-header]:not(:hover):not(:focus-within) slot[name="header-metadata"] {
+  --diff-file-action-opacity: 0;
+  --diff-file-action-pointer-events: none;
+  --diff-mark-as-viewed-opacity: 0;
+  --diff-mark-as-viewed-pointer-events: none;
 }
 
 [data-diffs-header]:not(:hover):not(:focus-within)
@@ -180,7 +206,7 @@ function DiffHeaderActionButton(props: {
         render={
           <button
             type="button"
-            className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-40"
+            className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground [opacity:var(--diff-file-action-opacity)] transition-[color,background-color,opacity] duration-100 [pointer-events:var(--diff-file-action-pointer-events)] hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-40"
             aria-label={props.label}
             disabled={props.disabled}
             data-diff-header-action="file-action"
@@ -1221,10 +1247,7 @@ export default function DiffPanel({
                               render={
                                 <button
                                   type="button"
-                                  className={cn(
-                                    "-ms-0.5 inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 transition-colors hover:bg-foreground/10 focus-visible:outline-hidden",
-                                    getDiffCollapseIconClassName(fileDiff),
-                                  )}
+                                  className="-ms-0.5 inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden"
                                   aria-label={
                                     collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`
                                   }
@@ -1291,6 +1314,9 @@ export default function DiffPanel({
                       const filePath = resolveFileDiffPath(fileDiff);
                       const previousFilePath = resolveFileDiffPreviousPath(fileDiff);
                       const viewed = viewedDiffFileKeys.has(uiStateKey);
+                      const canToggleViewed =
+                        selectedRunId !== null ||
+                        (selectedGitScope !== "staged" && selectedGitScope !== "unstaged");
                       const fileActions = supportsLocalGitSources
                         ? resolveDiffFileActions({
                             scope: selectedGitScope,
@@ -1337,24 +1363,30 @@ export default function DiffPanel({
                               <MinusIcon className="size-3.5" />
                             </DiffHeaderActionButton>
                           )}
-                          <button
-                            type="button"
-                            className="ml-1 inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-sm border-0 bg-transparent p-0 text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                            aria-label={
-                              viewed
-                                ? `Mark ${filePath} as not viewed`
-                                : `Mark ${filePath} as viewed`
-                            }
-                            aria-pressed={viewed}
-                            data-diff-header-action="toggle-viewed"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              toggleDiffFileViewed(uiStateKey);
-                            }}
-                          >
-                            {viewed && <CheckIcon className="size-3.5" />}
-                            <span>{viewed ? "Viewed" : "Mark as viewed"}</span>
-                          </button>
+                          {canToggleViewed && (
+                            <button
+                              type="button"
+                              className={cn(
+                                "relative ml-1 inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-sm border-0 bg-transparent p-0 text-[11px] text-muted-foreground transition-[color,opacity] duration-100 after:absolute after:-inset-x-1.5 after:-inset-y-1 after:content-[''] hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                                !viewed &&
+                                  "[opacity:var(--diff-mark-as-viewed-opacity)] [pointer-events:var(--diff-mark-as-viewed-pointer-events)]",
+                              )}
+                              aria-label={
+                                viewed
+                                  ? `Mark ${filePath} as not viewed`
+                                  : `Mark ${filePath} as viewed`
+                              }
+                              aria-pressed={viewed}
+                              data-diff-header-action="toggle-viewed"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleDiffFileViewed(uiStateKey);
+                              }}
+                            >
+                              {viewed && <CheckIcon className="size-3.5" />}
+                              <span>{viewed ? "Marked as viewed" : "Mark as viewed"}</span>
+                            </button>
+                          )}
                         </div>
                       );
                     }}

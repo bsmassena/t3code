@@ -39,10 +39,6 @@ export const DiffFileNavigator = memo(function DiffFileNavigator(props: {
     () => new Map(files.map(({ fileKey, filePath }) => [filePath, fileKey])),
     [files],
   );
-  const fileTypeByPath = useMemo(
-    () => new Map(files.map(({ fileDiff, filePath }) => [filePath, fileDiff.type])),
-    [files],
-  );
   const toggleDirectory = useCallback((pathValue: string) => {
     setCollapsedDirectories((current) => {
       const next = new Set(current);
@@ -81,7 +77,15 @@ export const DiffFileNavigator = memo(function DiffFileNavigator(props: {
             <span className="min-w-0 flex-1 truncate font-medium">{node.name}</span>
           </button>
           {!collapsed && (
-            <div role="group">{node.children.map((child) => renderNode(child, depth + 1))}</div>
+            <div className="relative" role="group">
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 w-px bg-border/60"
+                data-diff-tree-guide=""
+                style={{ left: paddingLeft + 7 }}
+              />
+              {node.children.map((child) => renderNode(child, depth + 1))}
+            </div>
           )}
         </div>
       );
@@ -89,7 +93,6 @@ export const DiffFileNavigator = memo(function DiffFileNavigator(props: {
 
     const fileKey = fileKeyByPath.get(node.path);
     if (!fileKey) return null;
-    const changeType = fileTypeByPath.get(node.path);
     return (
       <button
         key={`file:${node.path}`}
@@ -115,17 +118,6 @@ export const DiffFileNavigator = memo(function DiffFileNavigator(props: {
             className="shrink-0 text-[10px]"
           />
         ) : null}
-        <span
-          aria-label={changeType ? `${changeType} file` : "Changed file"}
-          className={cn(
-            "size-2 shrink-0 rounded-[2px] border",
-            changeType === "new"
-              ? "border-success/80 bg-success/15"
-              : changeType === "deleted"
-                ? "border-destructive/80 bg-destructive/15"
-                : "border-[var(--diffs-modified-base)] bg-[color-mix(in_srgb,var(--diffs-modified-base)_15%,transparent)]",
-          )}
-        />
       </button>
     );
   };

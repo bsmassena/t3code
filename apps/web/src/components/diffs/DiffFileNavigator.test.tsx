@@ -44,5 +44,7 @@ describe("DiffFileNavigator", () => {
     expect(markup).toContain("+1");
     expect(markup).toContain("-1");
     expect(markup).toContain("bg-accent");
+    expect(markup).toContain("data-diff-tree-guide");
+    expect(markup).not.toContain("Changed file");
   });
 });
