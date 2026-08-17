@@ -135,6 +135,7 @@ import {
 } from "./userMessageTerminalContexts";
 import { SkillInlineText } from "./SkillInlineText";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import type { SyntaxThemePreference } from "../../syntaxTheme";
 import {
   buildReviewCommentRenderablePatch,
   formatReviewCommentFence,
@@ -155,6 +156,7 @@ interface TimelineRowSharedState {
   threadRef: ScopedThreadRef | null;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
+  syntaxTheme: SyntaxThemePreference;
   workspaceRoot: string | undefined;
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   /** Provider snapshots for resolving handoff endpoints to icons + model names. */
@@ -252,6 +254,7 @@ interface MessagesTimelineProps {
   activeThreadEnvironmentId: EnvironmentId;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
+  syntaxTheme: SyntaxThemePreference;
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
@@ -303,6 +306,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   activeThreadEnvironmentId,
   markdownCwd,
   resolvedTheme,
+  syntaxTheme,
   timestampFormat,
   workspaceRoot,
   skills = EMPTY_TIMELINE_SKILLS,
@@ -586,6 +590,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       threadRef: parseScopedThreadKey(routeThreadKey),
       markdownCwd,
       resolvedTheme,
+      syntaxTheme,
       workspaceRoot,
       skills,
       providerStatuses,
@@ -607,6 +612,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       routeThreadKey,
       markdownCwd,
       resolvedTheme,
+      syntaxTheme,
       workspaceRoot,
       skills,
       providerStatuses,
@@ -2687,7 +2693,7 @@ function UserMessageReviewCommentCard({ comment }: { comment: ReviewCommentConte
             options={{
               collapsed: false,
               diffStyle: "unified",
-              theme: resolveDiffThemeName(ctx.resolvedTheme),
+              theme: resolveDiffThemeName(ctx.resolvedTheme, ctx.syntaxTheme),
             }}
           />
         ))}

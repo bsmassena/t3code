@@ -195,6 +195,7 @@ function buildProps() {
     activeThreadEnvironmentId: ACTIVE_THREAD_ENVIRONMENT_ID,
     markdownCwd: undefined,
     resolvedTheme: "light" as const,
+    syntaxTheme: "t3-code" as const,
     timestampFormat: "locale" as const,
     workspaceRoot: undefined,
     anchorMessageId: null,

@@ -66,6 +66,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "syntax-highlighting",
+    title: "Syntax highlighting",
+    to: "/settings/appearance",
+  },
+  {
     // Prefixed because the slider control already owns the `glass-opacity` id.
     id: "setting-glass-opacity",
     title: "Glass opacity",
