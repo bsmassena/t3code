@@ -1990,7 +1990,7 @@ function ChatMarkdown({
   onImageExpand,
   extraRemarkPlugins = EMPTY_REMARK_PLUGINS,
 }: ChatMarkdownProps) {
-  const { resolvedTheme } = useTheme();
+  const { resolvedTheme, syntaxTheme } = useTheme();
   const [localMediaPreview, setLocalMediaPreview] = useState<ExpandedImagePreview | null>(null);
   const expandMedia = onImageExpand ?? setLocalMediaPreview;
   const mediaRequestId = useRef(0);
@@ -2092,7 +2092,7 @@ function ChatMarkdown({
     },
     [environmentId, openInEditor],
   );
-  const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const diffThemeName = resolveDiffThemeName(resolvedTheme, syntaxTheme);
   const markdownFileLinkMetaByHref = useMemo(() => {
     const metaByHref = new Map<
       string,
