@@ -863,7 +863,7 @@ interface ActiveCodexProviderRetry {
   readonly itemOrdinal: number;
 }
 
-/** Snapshot of a still-running commandExecution item for interrupt/fail terminalization. */
+/** Snapshot of a still-running commandExecution item for turn terminalization. */
 interface TrackedRunningCommandItem {
   readonly id: string;
   readonly command: string;
@@ -1685,17 +1685,16 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             return [remaining.size === 0, updated] as const;
           });
 
-        /**
-         * When a turn is interrupted or failed, Codex often leaves commandExecution
-         * items mid-flight (no item/completed). Emit terminal turn items before
-         * turn.terminal so the projection never keeps a forever-running command card.
-         * Does not retain settled context: late completions must not wake the run.
-         */
+        /** Emit terminal updates for selected commandExecution items before turn.terminal. */
         const terminalizeRunningCommandItems = (
           context: ActiveCodexTurnContext,
           nativeTurnId: string,
-          status: "interrupted" | "failed",
+          status: "cancelled" | "interrupted" | "failed",
           completedAt: DateTime.Utc,
+          options: {
+            readonly shouldTerminalize?: (item: TrackedRunningCommandItem) => boolean;
+            readonly removeTerminalizedItems?: boolean;
+          } = {},
         ) =>
           Effect.gen(function* () {
             const items = (yield* Ref.get(runningCommandItemsByTurn)).get(nativeTurnId);
@@ -1703,6 +1702,9 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               return;
             }
             for (const tracked of items.values()) {
+              if (options.shouldTerminalize?.(tracked) === false) {
+                continue;
+              }
               const nodeId = idAllocator.derive.nodeFromProviderItem({
                 driver: CODEX_PROVIDER,
                 nativeItemId: tracked.id,
@@ -1760,6 +1762,9 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 driver: CODEX_PROVIDER,
                 turnItem,
               });
+              if (options.removeTerminalizedItems === true) {
+                yield* clearRunningCommandItem(nativeTurnId, tracked.id);
+              }
             }
           });
 
@@ -4393,7 +4398,20 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                   completedAt: input.completedAt,
                 });
               }
-              if (input.status === "interrupted" || input.status === "failed") {
+              if (input.status === "completed") {
+                // A detached background command has a processId and may complete after the
+                // turn. Without one, a missing item/completed means the command was abandoned.
+                yield* terminalizeRunningCommandItems(
+                  input.context,
+                  input.nativeTurnId,
+                  "cancelled",
+                  input.completedAt,
+                  {
+                    shouldTerminalize: (item) => item.processId === undefined,
+                    removeTerminalizedItems: true,
+                  },
+                );
+              } else if (input.status === "interrupted" || input.status === "failed") {
                 yield* terminalizeRunningCommandItems(
                   input.context,
                   input.nativeTurnId,
