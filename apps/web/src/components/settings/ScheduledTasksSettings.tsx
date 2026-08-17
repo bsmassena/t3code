@@ -1,10 +1,13 @@
 import { useAtomValue } from "@effect/atom-react";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/models";
 import { Clock3Icon, PencilIcon, PlayIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import * as Option from "effect/Option";
+import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import type {
+  EnvironmentId,
   ModelSelection,
   OrchestrationV2ThreadLaunchWorkspaceStrategy,
-  ProjectId,
   ProviderInteractionMode,
   RuntimeMode,
   ScheduledTask,
@@ -21,17 +24,17 @@ import {
 
 import { cn } from "../../lib/utils";
 import { formatRelativeTime } from "../../timestampFormat";
-import { usePrimarySettings } from "../../hooks/useSettings";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
-import { usePrimaryEnvironment } from "../../state/environments";
+import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { useProjects } from "../../state/entities";
-import { useEnvironmentQuery } from "../../state/query";
-import { primaryServerProvidersAtom, serverEnvironment } from "../../state/server";
+import { formatEnvironmentQueryError } from "../../state/query";
+import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { Badge } from "../ui/badge";
@@ -58,6 +61,8 @@ type ScheduleMode = "fixed" | "interval";
 type WorkspaceMode = "root" | "worktree" | "existing_worktree";
 
 interface DraftState {
+  readonly environmentId: EnvironmentId | null;
+  readonly editingEnvironmentId: EnvironmentId | null;
   readonly editingId: string | null;
   readonly title: string;
   readonly prompt: string;
@@ -96,6 +101,8 @@ const WORKSPACE_MODE_LABELS: Record<WorkspaceMode, string> = {
 };
 
 const EMPTY_DRAFT: DraftState = {
+  environmentId: null,
+  editingEnvironmentId: null,
   editingId: null,
   title: "",
   prompt: "",
@@ -207,13 +214,15 @@ export function relativeLabel(value: string | null): string {
   return `in ${Math.round(hours / 24)}d`;
 }
 
-function taskToDraft(task: ScheduledTask): DraftState {
+function taskToDraft(task: ScheduledTask, environmentId: EnvironmentId): DraftState {
   const schedule = task.schedule;
   const weekdays =
     schedule.type === "fixed_time" && schedule.weekdays && schedule.weekdays.length > 0
       ? new Set(schedule.weekdays)
       : new Set(ALL_WEEKDAYS);
   return {
+    environmentId,
+    editingEnvironmentId: environmentId,
     editingId: task.id,
     title: task.title,
     prompt: task.prompt,
@@ -247,22 +256,105 @@ function statusVariant(status: ScheduledTask["lastRunStatus"]) {
   return "outline";
 }
 
-export function ScheduledTasksSettings() {
-  useRelativeTimeTick(15_000);
-  const environment = usePrimaryEnvironment();
-  const projects = useProjects();
-  const settings = usePrimarySettings();
-  const providers = useAtomValue(primaryServerProvidersAtom);
-  // Live subscription: the server pushes a fresh list after every change
-  // (CRUD, run transitions, reschedules), so no manual refresh is needed.
-  const tasksQuery = useEnvironmentQuery(
-    environment
-      ? serverEnvironment.scheduledTasksLive({
-          environmentId: environment.environmentId,
+export interface ScopedScheduledTask {
+  readonly environmentId: EnvironmentId;
+  readonly task: ScheduledTask;
+}
+
+interface ScheduledTaskAggregate {
+  readonly tasks: ReadonlyArray<ScopedScheduledTask>;
+  readonly error: string | null;
+}
+
+function scopedProjectValue(project: EnvironmentProject): string {
+  return JSON.stringify([project.environmentId, project.id]);
+}
+
+function createScheduledTaskAggregateAtom(
+  environmentIds: ReadonlyArray<EnvironmentId>,
+): Atom.Atom<ScheduledTaskAggregate> {
+  return Atom.make((get): ScheduledTaskAggregate => {
+    const tasks: ScopedScheduledTask[] = [];
+    let error: string | null = null;
+
+    for (const environmentId of environmentIds) {
+      const result = get(
+        serverEnvironment.scheduledTasksLive({
+          environmentId,
           input: {},
-        })
-      : null,
+        }),
+      );
+      const snapshot = Option.getOrNull(AsyncResult.value(result));
+      if (snapshot) {
+        tasks.push(...snapshot.tasks.map((task) => ({ environmentId, task })));
+      }
+      if (error === null && result._tag === "Failure") {
+        error = formatEnvironmentQueryError(result.cause);
+      }
+    }
+
+    return { tasks, error };
+  }).pipe(Atom.withLabel("scheduled-tasks:all-environments"));
+}
+
+export function ScheduledTasksSettings() {
+  const { environments, isReady } = useEnvironments();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const projects = useProjects();
+  const environmentIds = useMemo(
+    () => environments.map((environment) => environment.environmentId),
+    [environments],
   );
+  const tasksAtom = useMemo(
+    () => createScheduledTaskAggregateAtom(environmentIds),
+    [environmentIds],
+  );
+  const taskAggregate = useAtomValue(tasksAtom);
+  const defaultEnvironmentId =
+    primaryEnvironmentId ?? projects[0]?.environmentId ?? environmentIds[0] ?? null;
+
+  return (
+    <SettingsPageContainer className="max-w-3xl">
+      {defaultEnvironmentId ? (
+        <ScheduledTasksSettingsPanel
+          defaultEnvironmentId={defaultEnvironmentId}
+          projects={projects}
+          tasks={taskAggregate.tasks}
+          tasksError={taskAggregate.error}
+        />
+      ) : (
+        <SettingsSection title="Schedule Tasks" icon={<Clock3Icon className="size-3.5" />}>
+          <div className="px-5 py-4 text-xs text-muted-foreground">
+            {isReady
+              ? "Connect an environment before creating a scheduled task."
+              : "Reading connected execution environments."}
+          </div>
+        </SettingsSection>
+      )}
+    </SettingsPageContainer>
+  );
+}
+
+export function ScheduledTasksSettingsPanel({
+  defaultEnvironmentId,
+  projects,
+  tasks,
+  tasksError,
+}: {
+  readonly defaultEnvironmentId: EnvironmentId;
+  readonly projects: ReadonlyArray<EnvironmentProject>;
+  readonly tasks: ReadonlyArray<ScopedScheduledTask>;
+  readonly tasksError: string | null;
+}) {
+  useRelativeTimeTick(15_000);
+  const [draft, setDraft] = useState<DraftState>(() => EMPTY_DRAFT);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const draftEnvironmentId = draft.environmentId ?? defaultEnvironmentId;
+  const settings = useEnvironmentSettings(draftEnvironmentId);
+  const providers =
+    useAtomValue(serverEnvironment.providersValueAtom(draftEnvironmentId)) ??
+    EMPTY_SERVER_PROVIDERS;
   const upsertTask = useAtomCommand(serverEnvironment.upsertScheduledTask, {
     label: "scheduled task upsert",
   });
@@ -279,11 +371,13 @@ export function ScheduledTasksSettings() {
       ),
     [providers, settings],
   );
-  const [draft, setDraft] = useState<DraftState>(() => EMPTY_DRAFT);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const tasks = tasksQuery.data?.tasks ?? [];
-  const selectedProjectTitle = projects.find((project) => project.id === draft.projectId)?.title;
+  const selectedProject = projects.find(
+    (project) => project.environmentId === draftEnvironmentId && project.id === draft.projectId,
+  );
+  const selectedProjectTitle = selectedProject?.title;
+  const selectableProjects = draft.editingEnvironmentId
+    ? projects.filter((project) => project.environmentId === draft.editingEnvironmentId)
+    : projects;
 
   // The real model picker is keyed by a `${instanceId}:${model}` string, which
   // is exactly how the draft stores its selection.
@@ -302,18 +396,31 @@ export function ScheduledTasksSettings() {
   );
 
   const openForCreate = useCallback(() => {
+    const project = projects[0] ?? null;
     setDraft({
       ...EMPTY_DRAFT,
-      projectId: projects[0]?.id ?? "",
+      environmentId: project?.environmentId ?? defaultEnvironmentId,
+      projectId: project?.id ?? "",
       modelKey: defaultModelKey,
     });
     setDialogOpen(true);
-  }, [defaultModelKey, projects]);
+  }, [defaultEnvironmentId, defaultModelKey, projects]);
 
-  const openForEdit = useCallback((task: ScheduledTask) => {
-    setDraft(taskToDraft(task));
-    setDialogOpen(true);
-  }, []);
+  const openForEdit = useCallback(
+    ({ environmentId, task }: ScopedScheduledTask) => {
+      const next = taskToDraft(task, environmentId);
+      setDraft({
+        ...next,
+        projectId: projects.some(
+          (project) => project.environmentId === environmentId && project.id === task.projectId,
+        )
+          ? next.projectId
+          : "",
+      });
+      setDialogOpen(true);
+    },
+    [projects],
+  );
 
   const reportFailure = (title: string, error: unknown) => {
     toastManager.add(
@@ -326,9 +433,12 @@ export function ScheduledTasksSettings() {
   };
 
   const submit = useCallback(async () => {
-    if (!environment || saving) return;
+    if (saving) return;
     const selection = splitModelKey(draft.modelKey || defaultModelKey);
-    if (!draft.title.trim() || !draft.prompt.trim() || !draft.projectId || selection === null) {
+    const selectedProject = projects.find(
+      (project) => project.environmentId === draftEnvironmentId && project.id === draft.projectId,
+    );
+    if (!draft.title.trim() || !draft.prompt.trim() || !selectedProject || selection === null) {
       reportFailure("Schedule task is incomplete", "Add a title, prompt, project, and model.");
       return;
     }
@@ -352,7 +462,7 @@ export function ScheduledTasksSettings() {
       prompt: draft.prompt.trim(),
       enabled: draft.enabled,
       schedule: scheduleFromDraft(draft),
-      projectId: draft.projectId as ProjectId,
+      projectId: selectedProject.id,
       threadId: draft.threadId ? (draft.threadId as ThreadId) : null,
       workspaceStrategy,
       modelSelection,
@@ -361,7 +471,7 @@ export function ScheduledTasksSettings() {
       creationSource: "web",
     };
     setSaving(true);
-    const result = await upsertTask({ environmentId: environment.environmentId, input });
+    const result = await upsertTask({ environmentId: selectedProject.environmentId, input });
     setSaving(false);
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
@@ -370,49 +480,62 @@ export function ScheduledTasksSettings() {
       return;
     }
     setDialogOpen(false);
-  }, [defaultModelKey, draft, environment, saving, upsertTask]);
+  }, [defaultModelKey, draft, draftEnvironmentId, projects, saving, upsertTask]);
 
   const handleDelete = useCallback(
-    async (task: ScheduledTask) => {
-      if (!environment) return;
+    async ({ environmentId, task }: ScopedScheduledTask) => {
       const result = await deleteTask({
-        environmentId: environment.environmentId,
+        environmentId,
         input: { id: task.id },
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         reportFailure("Could not delete schedule task", squashAtomCommandFailure(result));
       }
     },
-    [deleteTask, environment],
+    [deleteTask],
   );
 
   const handleRunNow = useCallback(
-    async (task: ScheduledTask) => {
-      if (!environment) return;
+    async ({ environmentId, task }: ScopedScheduledTask) => {
       const result = await runTaskNow({
-        environmentId: environment.environmentId,
+        environmentId,
         input: { id: task.id },
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         reportFailure("Could not run schedule task", squashAtomCommandFailure(result));
       }
     },
-    [environment, runTaskNow],
+    [runTaskNow],
   );
 
   // Keep the draft pointed at a real project once projects load, so a freshly
   // opened dialog is never stuck on an empty project select.
   useEffect(() => {
-    if (draft.projectId || projects.length === 0) return;
+    if (
+      selectableProjects.length === 0 ||
+      selectableProjects.some(
+        (project) => project.environmentId === draftEnvironmentId && project.id === draft.projectId,
+      )
+    ) {
+      return;
+    }
+    const project = selectableProjects[0];
     setDraft((current) => ({
       ...current,
-      projectId: projects[0]?.id ?? "",
+      environmentId: project?.environmentId ?? defaultEnvironmentId,
+      projectId: project?.id ?? "",
       modelKey: current.modelKey || defaultModelKey,
     }));
-  }, [defaultModelKey, draft.projectId, projects]);
+  }, [
+    defaultEnvironmentId,
+    defaultModelKey,
+    draft.projectId,
+    draftEnvironmentId,
+    selectableProjects,
+  ]);
 
   return (
-    <SettingsPageContainer className="max-w-3xl">
+    <>
       <SettingsSection
         title="Schedule Tasks"
         icon={<Clock3Icon className="size-3.5" />}
@@ -423,8 +546,8 @@ export function ScheduledTasksSettings() {
           </Button>
         }
       >
-        {tasksQuery.error ? (
-          <div className="px-5 py-4 text-xs text-destructive">{tasksQuery.error}</div>
+        {tasksError && tasks.length === 0 ? (
+          <div className="px-5 py-4 text-xs text-destructive">{tasksError}</div>
         ) : tasks.length === 0 ? (
           <div className="flex flex-col items-center gap-3 px-5 py-12 text-center">
             <div className="grid size-10 place-items-center rounded-full border border-border/70 bg-muted/40 text-muted-foreground">
@@ -443,61 +566,71 @@ export function ScheduledTasksSettings() {
           </div>
         ) : (
           <div className="divide-y divide-border/60">
-            {tasks.map((task) => (
-              <div key={task.id} className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <div className="min-w-0 space-y-2">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <h3 className="truncate text-sm font-semibold text-foreground">{task.title}</h3>
-                    <Badge variant={task.enabled ? "success" : "outline"}>
-                      {task.enabled ? "Enabled" : "Paused"}
-                    </Badge>
-                    <Badge variant={statusVariant(task.lastRunStatus)}>{task.lastRunStatus}</Badge>
+            {tasks.map((scopedTask) => {
+              const { environmentId, task } = scopedTask;
+              return (
+                <div
+                  key={`${environmentId}:${task.id}`}
+                  className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto]"
+                >
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <h3 className="truncate text-sm font-semibold text-foreground">
+                        {task.title}
+                      </h3>
+                      <Badge variant={task.enabled ? "success" : "outline"}>
+                        {task.enabled ? "Enabled" : "Paused"}
+                      </Badge>
+                      <Badge variant={statusVariant(task.lastRunStatus)}>
+                        {task.lastRunStatus}
+                      </Badge>
+                    </div>
+                    <p className="line-clamp-2 text-xs text-muted-foreground">{task.prompt}</p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground/80">
+                      <span>{scheduleLabel(task.schedule)}</span>
+                      <span>Next: {relativeLabel(task.nextRunAt)}</span>
+                      <span>Runs: {task.runCount}</span>
+                    </div>
+                    {task.lastRunError ? (
+                      <p className="text-[11px] text-destructive">{task.lastRunError}</p>
+                    ) : null}
                   </div>
-                  <p className="line-clamp-2 text-xs text-muted-foreground">{task.prompt}</p>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground/80">
-                    <span>{scheduleLabel(task.schedule)}</span>
-                    <span>Next: {relativeLabel(task.nextRunAt)}</span>
-                    <span>Runs: {task.runCount}</span>
+                  <div className="flex items-start gap-1">
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label={`Run ${task.title}`}
+                            onClick={() => void handleRunNow(scopedTask)}
+                          >
+                            <PlayIcon className="size-4" />
+                          </Button>
+                        }
+                      />
+                      <TooltipPopup>Run now</TooltipPopup>
+                    </Tooltip>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Edit ${task.title}`}
+                      onClick={() => openForEdit(scopedTask)}
+                    >
+                      <PencilIcon className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Delete ${task.title}`}
+                      onClick={() => void handleDelete(scopedTask)}
+                    >
+                      <Trash2Icon className="size-4" />
+                    </Button>
                   </div>
-                  {task.lastRunError ? (
-                    <p className="text-[11px] text-destructive">{task.lastRunError}</p>
-                  ) : null}
                 </div>
-                <div className="flex items-start gap-1">
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          aria-label={`Run ${task.title}`}
-                          onClick={() => void handleRunNow(task)}
-                        >
-                          <PlayIcon className="size-4" />
-                        </Button>
-                      }
-                    />
-                    <TooltipPopup>Run now</TooltipPopup>
-                  </Tooltip>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label={`Edit ${task.title}`}
-                    onClick={() => openForEdit(task)}
-                  >
-                    <PencilIcon className="size-4" />
-                  </Button>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label={`Delete ${task.title}`}
-                    onClick={() => void handleDelete(task)}
-                  >
-                    <Trash2Icon className="size-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </SettingsSection>
@@ -526,17 +659,34 @@ export function ScheduledTasksSettings() {
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Project">
                 <Select
-                  value={draft.projectId}
-                  onValueChange={(projectId) =>
-                    setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
-                  }
+                  value={selectedProject ? scopedProjectValue(selectedProject) : null}
+                  onValueChange={(value) => {
+                    const project = selectableProjects.find(
+                      (candidate) => scopedProjectValue(candidate) === value,
+                    );
+                    if (!project) return;
+                    setDraft((current) => ({
+                      ...current,
+                      environmentId: project.environmentId,
+                      projectId: project.id,
+                      modelKey:
+                        current.environmentId === project.environmentId ? current.modelKey : "",
+                      baseModelSelection:
+                        current.environmentId === project.environmentId
+                          ? current.baseModelSelection
+                          : null,
+                    }));
+                  }}
                 >
                   <SelectTrigger size="sm">
                     <SelectValue placeholder="Select a project">{selectedProjectTitle}</SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
+                    {selectableProjects.map((project) => (
+                      <SelectItem
+                        key={scopedProjectValue(project)}
+                        value={scopedProjectValue(project)}
+                      >
                         {project.title}
                       </SelectItem>
                     ))}
@@ -736,6 +886,6 @@ export function ScheduledTasksSettings() {
           </DialogFooter>
         </DialogPopup>
       </Dialog>
-    </SettingsPageContainer>
+    </>
   );
 }
