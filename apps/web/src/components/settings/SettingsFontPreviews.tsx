@@ -121,8 +121,8 @@ function StaticDiffHtml({ html }: { html: string }) {
 
 /** The diff panel's file diff, statically rendered by its real pipeline. */
 export function CodeFontPreview() {
-  const { resolvedTheme } = useTheme();
-  const themeName = resolveDiffThemeName(resolvedTheme);
+  const { resolvedTheme, syntaxTheme } = useTheme();
+  const themeName = resolveDiffThemeName(resolvedTheme, syntaxTheme);
   const [htmlByFile, setHtmlByFile] = useState<readonly string[] | null>(null);
   useEffect(() => {
     let cancelled = false;

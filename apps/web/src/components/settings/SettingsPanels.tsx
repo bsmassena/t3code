@@ -58,6 +58,7 @@ import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hos
 import { useCustomThemes } from "../../hooks/useCustomThemes";
 import {
   readAppearanceModePreference,
+  readSyntaxThemePreference,
   readThemeHalves,
   readThemePreference,
   useTheme,
@@ -77,6 +78,11 @@ import {
 } from "../../providerInstances";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { isMacPlatform } from "../../lib/utils";
+import {
+  DEFAULT_SYNTAX_THEME_PREFERENCE,
+  isSyntaxThemePreference,
+  type SyntaxThemePreference,
+} from "../../syntaxTheme";
 import { primaryServerObservabilityAtom, primaryServerProvidersAtom } from "../../state/server";
 import { useProjects } from "../../state/entities";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
@@ -148,6 +154,11 @@ const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, s
   artwork: "Artwork",
   pill: "Version pill",
   none: "None",
+};
+
+const SYNTAX_THEME_LABELS: Record<SyntaxThemePreference, string> = {
+  "t3-code": "T3 Code",
+  "vs-code": "VS Code",
 };
 
 const TIMESTAMP_FORMAT_LABELS = {
@@ -458,7 +469,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     followSystem,
     setFollowSystem,
     setThemeHalf,
+    setSyntaxTheme,
     clearThemeHalves,
+    syntaxTheme,
     themeHalves,
   } = useTheme();
   const settings = usePrimarySettings();
@@ -475,6 +488,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(theme !== "system" ? ["Theme"] : []),
       ...(!followSystem ? ["Follow system"] : []),
       ...(themeHalves !== null ? ["Theme mix"] : []),
+      ...(syntaxTheme !== DEFAULT_SYNTAX_THEME_PREFERENCE ? ["Syntax highlighting"] : []),
       ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
       ...(settings.environmentIdentificationMode !==
       DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode
@@ -554,6 +568,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.timestampFormat,
       settings.wordWrap,
       followSystem,
+      syntaxTheme,
       theme,
       themeHalves,
     ],
@@ -584,8 +599,15 @@ export function useSettingsRestore(onRestored?: () => void) {
     // The mix may have changed while the confirmation dialog was open; both
     // the dirty check and the rollback must see the live value.
     const liveHalves = readThemeHalves();
+    let previousSyntaxTheme = syntaxTheme;
+    try {
+      previousSyntaxTheme = readSyntaxThemePreference();
+    } catch {
+      // Storage is unreadable; the render-time value is the best rollback.
+    }
     const needsThemeReset = previousTheme !== "system";
     const needsMixReset = liveHalves !== null;
+    const needsSyntaxThemeReset = previousSyntaxTheme !== DEFAULT_SYNTAX_THEME_PREFERENCE;
     // Same for the appearance mode: trusting the render-time value would skip
     // the reset and report success while a non-system mode stayed in storage.
     const needsFollowSystemReset = readAppearanceModePreference(previousTheme) !== "system";
@@ -603,11 +625,17 @@ export function useSettingsRestore(onRestored?: () => void) {
     // the pair of keys half-restored.
     const previousHalves = liveHalves;
     const rollbackThemeState = () => {
+      if (needsSyntaxThemeReset) setSyntaxTheme(previousSyntaxTheme);
       if (needsThemeReset) setTheme(previousTheme);
       if (previousHalves?.light) setThemeHalf("light", previousHalves.light);
       if (previousHalves?.dark) setThemeHalf("dark", previousHalves.dark);
     };
+    if (needsSyntaxThemeReset && !setSyntaxTheme(DEFAULT_SYNTAX_THEME_PREFERENCE)) {
+      notifyThemeRestoreFailure();
+      return;
+    }
     if (needsThemeReset && !setTheme("system")) {
+      rollbackThemeState();
       notifyThemeRestoreFailure();
       return;
     }
@@ -660,6 +688,8 @@ export function useSettingsRestore(onRestored?: () => void) {
     setFollowSystem,
     setTheme,
     setThemeHalf,
+    setSyntaxTheme,
+    syntaxTheme,
     theme,
     themeHalves,
     updateSettings,
@@ -943,8 +973,10 @@ export function AppearanceSettingsPanel() {
     refreshTheme,
     resolvedTheme,
     setAppearanceMode,
+    setSyntaxTheme,
     setTheme,
     setThemeHalf,
+    syntaxTheme,
     theme,
     themeHalves,
   } = useTheme();
@@ -980,6 +1012,38 @@ export function AppearanceSettingsPanel() {
             onImportOpenChange={setIsImportThemeOpen}
           />
         </div>
+
+        <SettingsRow
+          {...searchableSetting("syntax-highlighting")}
+          description="Choose the colors used for strings, variables, functions, and other code tokens."
+          resetAction={
+            syntaxTheme !== DEFAULT_SYNTAX_THEME_PREFERENCE ? (
+              <SettingResetButton
+                label="syntax highlighting"
+                onClick={() => setSyntaxTheme(DEFAULT_SYNTAX_THEME_PREFERENCE)}
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={syntaxTheme}
+              onValueChange={(value) => {
+                if (isSyntaxThemePreference(value)) setSyntaxTheme(value);
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Syntax highlighting">
+                <SelectValue>{SYNTAX_THEME_LABELS[syntaxTheme]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {Object.entries(SYNTAX_THEME_LABELS).map(([value, label]) => (
+                  <SelectItem hideIndicator key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
 
         <SettingsRow
           {...searchableSetting("setting-glass-opacity")}

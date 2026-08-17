@@ -75,6 +75,10 @@ describe("searchSettings", () => {
       id: "theme",
       to: "/settings/appearance",
     });
+    expect(searchSettings("syntax highlighting")[0]).toMatchObject({
+      id: "syntax-highlighting",
+      to: "/settings/appearance",
+    });
     expect(searchSettings("word wrap")[0]).toMatchObject({
       id: "word-wrap",
       to: "/settings/appearance",

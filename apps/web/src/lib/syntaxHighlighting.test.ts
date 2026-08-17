@@ -25,4 +25,9 @@ it("caches the recovered text highlighter for unsupported languages", async () =
 
   expect(second).toBe(first);
   expect(getSharedHighlighter).toHaveBeenCalledTimes(2);
+  expect(getSharedHighlighter).toHaveBeenCalledWith(
+    expect.objectContaining({
+      themes: ["pierre-light", "pierre-dark", "light-plus", "dark-plus"],
+    }),
+  );
 });

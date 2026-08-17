@@ -4,7 +4,7 @@ import {
   type SupportedLanguages,
 } from "@pierre/diffs";
 
-import { resolveDiffThemeName } from "./diffRendering";
+import { DIFF_THEME_NAME_VALUES } from "./diffRendering";
 
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 
@@ -13,7 +13,7 @@ export function getSyntaxHighlighterPromise(language: string): Promise<DiffsHigh
   if (cached) return cached;
 
   const promise = getSharedHighlighter({
-    themes: [resolveDiffThemeName("dark"), resolveDiffThemeName("light")],
+    themes: [...DIFF_THEME_NAME_VALUES],
     langs: [language as SupportedLanguages],
     preferredHighlighter: "shiki-js",
   }).catch((error) => {

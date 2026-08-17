@@ -231,7 +231,8 @@ export default function DiffPanel({
   composerDraftTarget,
   initialGitScope: initialGitScopeProp,
 }: DiffPanelProps) {
-  const { resolvedTheme } = useTheme();
+  const { resolvedTheme, syntaxTheme } = useTheme();
+  const diffThemeName = resolveDiffThemeName(resolvedTheme, syntaxTheme);
   const settings = useClientSettings();
   const [initialGitScope] = useState(initialGitScopeProp);
   const diffRenderMode = useDiffPanelStore((state) => state.diffRenderMode);
@@ -663,10 +664,10 @@ export default function DiffPanel({
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   const renderablePatch = useMemo(
     () =>
-      getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
+      getRenderablePatch(selectedPatch, `diff-panel:${diffThemeName}`, {
         compactPartialHunkOffsets: selectedRunId === null,
       }),
-    [resolvedTheme, selectedPatch, selectedRunId],
+    [diffThemeName, selectedPatch, selectedRunId],
   );
   const renderableFiles = useMemo(() => {
     if (!renderablePatch || renderablePatch.kind !== "files") {
@@ -1521,7 +1522,7 @@ export default function DiffPanel({
                       diffStyle: diffRenderMode === "split" ? "split" : "unified",
                       lineDiffType: "none",
                       overflow: wordWrap ? "wrap" : "scroll",
-                      theme: resolveDiffThemeName(resolvedTheme),
+                      theme: diffThemeName,
                       themeType: resolvedTheme as DiffThemeType,
                       stickyHeaders: true,
                       ...(loadDiffFiles ? { loadDiffFiles } : {}),

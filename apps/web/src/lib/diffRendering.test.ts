@@ -6,7 +6,20 @@ import {
   buildPatchCacheKey,
   getDiffLineStat,
   getRenderablePatch,
+  resolveDiffThemeName,
 } from "./diffRendering";
+
+describe("resolveDiffThemeName", () => {
+  it("keeps the T3 Code palette as the default", () => {
+    expect(resolveDiffThemeName("light")).toBe("pierre-light");
+    expect(resolveDiffThemeName("dark")).toBe("pierre-dark");
+  });
+
+  it("selects the matching VS Code palette for each appearance", () => {
+    expect(resolveDiffThemeName("light", "vs-code")).toBe("light-plus");
+    expect(resolveDiffThemeName("dark", "vs-code")).toBe("dark-plus");
+  });
+});
 
 describe("buildPatchCacheKey", () => {
   it("returns a stable cache key for identical content", () => {

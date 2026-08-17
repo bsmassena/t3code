@@ -82,6 +82,20 @@ describe("theme failure handling", () => {
     expect(readThemePreference()).toBe("t3-chat");
   });
 
+  it("persists the syntax highlighting preference and ignores unknown values", async () => {
+    const storage = createStorage();
+    vi.stubGlobal("window", { localStorage: storage });
+
+    const { readSyntaxThemePreference, writeSyntaxThemePreference } = await import("./useTheme");
+
+    expect(readSyntaxThemePreference()).toBe("t3-code");
+    writeSyntaxThemePreference("vs-code");
+    expect(readSyntaxThemePreference()).toBe("vs-code");
+
+    storage.setItem("t3code:syntax-theme", "unknown");
+    expect(readSyntaxThemePreference()).toBe("t3-code");
+  });
+
   it("falls back during initial theme application and logs only safe attributes", async () => {
     const cause = new Error("private browsing storage failure");
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
