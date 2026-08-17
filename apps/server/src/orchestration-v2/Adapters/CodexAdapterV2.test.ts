@@ -1823,6 +1823,119 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ),
   );
 
+  const ABANDONED_COMMAND_SCENARIO = "codex-abandoned-command";
+  const ABANDONED_COMMAND_NATIVE_THREAD = "native-codex-abandoned-command-thread";
+  const ABANDONED_COMMAND_NATIVE_TURN = "native-codex-abandoned-command-turn";
+  const ABANDONED_COMMAND_ITEM = "call-codex-abandoned-command";
+  const ABANDONED_COMMAND_PROMPT = "Run the command and reply when finished.";
+
+  const abandonedCommandTranscript = makeCodexReplayTranscript({
+    scenario: ABANDONED_COMMAND_SCENARIO,
+    entries: [
+      ...codexReplayPreamble({
+        nativeThreadId: ABANDONED_COMMAND_NATIVE_THREAD,
+        nativeTurnId: ABANDONED_COMMAND_NATIVE_TURN,
+        prompt: ABANDONED_COMMAND_PROMPT,
+      }),
+      {
+        type: "emit_inbound",
+        label: "item/started/command-without-process",
+        frame: {
+          method: "item/started",
+          params: {
+            item: {
+              type: "commandExecution",
+              id: ABANDONED_COMMAND_ITEM,
+              command: "echo abandoned",
+              cwd: "/workspace",
+              processId: null,
+              source: "agent",
+              status: "inProgress",
+              commandActions: [{ type: "unknown", command: "echo abandoned" }],
+              aggregatedOutput: null,
+              exitCode: null,
+              durationMs: null,
+            },
+            threadId: ABANDONED_COMMAND_NATIVE_THREAD,
+            turnId: ABANDONED_COMMAND_NATIVE_TURN,
+            startedAtMs: 1782622440500,
+          },
+        },
+      },
+      {
+        type: "emit_inbound",
+        label: "item/completed/root-answer",
+        frame: {
+          method: "item/completed",
+          params: {
+            item: {
+              type: "agentMessage",
+              id: "root-answer-abandoned-command",
+              text: "DONE",
+              phase: "final_answer",
+              memoryCitation: null,
+            },
+            threadId: ABANDONED_COMMAND_NATIVE_THREAD,
+            turnId: ABANDONED_COMMAND_NATIVE_TURN,
+            completedAtMs: 1782622441000,
+          },
+        },
+      },
+      {
+        type: "emit_inbound",
+        label: "turn/completed",
+        frame: {
+          method: "turn/completed",
+          params: {
+            threadId: ABANDONED_COMMAND_NATIVE_THREAD,
+            turn: makeCodexReplayTurn({ id: ABANDONED_COMMAND_NATIVE_TURN, status: "completed" }),
+          },
+        },
+      },
+    ],
+  });
+
+  it.effect("cancels a processless command left running by a completed turn", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeCodexReplayHarness(abandonedCommandTranscript);
+        const now = yield* DateTime.now;
+
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-codex-abandoned-command"),
+            text: ABANDONED_COMMAND_PROMPT,
+          }),
+        );
+        yield* awaitUntil(() => harness.terminalEvents().length === 1, "root turn terminal");
+
+        const commandStatuses = harness.events.flatMap((event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "command_execution" &&
+          event.turnItem.input === "echo abandoned"
+            ? [event.turnItem.status]
+            : [],
+        );
+        assert.deepEqual(commandStatuses, ["running", "cancelled"]);
+        const cancellationIndex = harness.events.findIndex(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "command_execution" &&
+            event.turnItem.input === "echo abandoned" &&
+            event.turnItem.status === "cancelled",
+        );
+        const terminalIndex = harness.events.findIndex((event) => event.type === "turn.terminal");
+        assert.isTrue(cancellationIndex >= 0 && cancellationIndex < terminalIndex);
+        assert.equal(harness.terminalEvents()[0]?.status, "completed");
+        assert.isFalse(yield* harness.hasPendingBackgroundWork);
+        assert.lengthOf(harness.continuationRequests, 0);
+      }).pipe(Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
+    ),
+  );
+
   const PRE_SETTLE_SCENARIO = "codex-bg-exec-pre-settle";
   const PRE_SETTLE_NATIVE_THREAD = "native-codex-pre-settle-thread";
   const PRE_SETTLE_NATIVE_TURN = "native-codex-pre-settle-turn";
