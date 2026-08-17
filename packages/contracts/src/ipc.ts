@@ -19,6 +19,10 @@ import type {
   VcsStatusResult,
 } from "./git.ts";
 import type {
+  ReviewCommitDiffInput,
+  ReviewCommitDiffResult,
+  ReviewCommitListInput,
+  ReviewCommitListResult,
   ReviewDiffFileContentsInput,
   ReviewDiffFileContentsResult,
   ReviewDiffFileActionInput,
@@ -1249,6 +1253,8 @@ export interface EnvironmentApi {
     ) => Promise<GitPreparePullRequestThreadResult>;
   };
   review: {
+    listCommits: (input: ReviewCommitListInput) => Promise<ReviewCommitListResult>;
+    getCommitDiff: (input: ReviewCommitDiffInput) => Promise<ReviewCommitDiffResult>;
     getDiffPreview: (input: ReviewDiffPreviewInput) => Promise<ReviewDiffPreviewResult>;
     getDiffFileContents: (
       input: ReviewDiffFileContentsInput,

@@ -8,6 +8,10 @@ import * as Path from "effect/Path";
 import {
   VcsRepositoryDetectionError,
   VcsUnsupportedOperationError,
+  type ReviewCommitDiffInput,
+  type ReviewCommitDiffResult,
+  type ReviewCommitListInput,
+  type ReviewCommitListResult,
   type ReviewDiffFileContentsInput,
   type ReviewDiffFileContentsResult,
   type ReviewDiffFileActionInput,
@@ -23,6 +27,12 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 export class ReviewService extends Context.Service<
   ReviewService,
   {
+    readonly listCommits: (
+      input: ReviewCommitListInput,
+    ) => Effect.Effect<ReviewCommitListResult, ReviewDiffPreviewError>;
+    readonly getCommitDiff: (
+      input: ReviewCommitDiffInput,
+    ) => Effect.Effect<ReviewCommitDiffResult, ReviewDiffPreviewError>;
     readonly getDiffPreview: (
       input: ReviewDiffPreviewInput,
     ) => Effect.Effect<ReviewDiffPreviewResult, ReviewDiffPreviewError>;
@@ -69,6 +79,8 @@ export const make = Effect.gen(function* () {
   const assertWorkspaceBoundCwd = Effect.fn("ReviewService.assertWorkspaceBoundCwd")(function* (
     operation:
       | "ReviewService.getDiffPreview"
+      | "ReviewService.listCommits"
+      | "ReviewService.getCommitDiff"
       | "ReviewService.getDiffFileContents"
       | "ReviewService.runDiffFileAction",
     cwd: string,
@@ -87,11 +99,13 @@ export const make = Effect.gen(function* () {
       operation,
       cwd,
       detail:
-        operation === "ReviewService.getDiffPreview"
+        operation === "ReviewService.getDiffPreview" || operation === "ReviewService.getCommitDiff"
           ? "Review diff preview cwd must stay within the configured workspace root."
-          : operation === "ReviewService.getDiffFileContents"
-            ? "Review diff file contents cwd must stay within the configured workspace root."
-            : "Review diff action cwd must stay within the configured workspace root.",
+          : operation === "ReviewService.listCommits"
+            ? "Review commit list cwd must stay within the configured workspace root."
+            : operation === "ReviewService.getDiffFileContents"
+              ? "Review diff file contents cwd must stay within the configured workspace root."
+              : "Review diff action cwd must stay within the configured workspace root.",
     });
   });
 
@@ -122,6 +136,36 @@ export const make = Effect.gen(function* () {
     }
 
     return yield* getDriverDiffPreview(input);
+  });
+
+  const listCommits: ReviewService["Service"]["listCommits"] = Effect.fn(
+    "ReviewService.listCommits",
+  )(function* (input) {
+    yield* assertWorkspaceBoundCwd("ReviewService.listCommits", input.cwd);
+    const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
+    if (handle?.kind !== "git") {
+      return yield* new VcsUnsupportedOperationError({
+        operation: "ReviewService.listCommits",
+        kind: handle?.kind ?? "unknown",
+        detail: "Commit history currently requires a Git repository.",
+      });
+    }
+    return yield* git.listReviewCommits(input);
+  });
+
+  const getCommitDiff: ReviewService["Service"]["getCommitDiff"] = Effect.fn(
+    "ReviewService.getCommitDiff",
+  )(function* (input) {
+    yield* assertWorkspaceBoundCwd("ReviewService.getCommitDiff", input.cwd);
+    const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
+    if (handle?.kind !== "git") {
+      return yield* new VcsUnsupportedOperationError({
+        operation: "ReviewService.getCommitDiff",
+        kind: handle?.kind ?? "unknown",
+        detail: "Commit diffs currently require a Git repository.",
+      });
+    }
+    return yield* git.getReviewCommitDiff(input);
   });
 
   const getDiffFileContents: ReviewService["Service"]["getDiffFileContents"] = Effect.fn(
@@ -159,6 +203,8 @@ export const make = Effect.gen(function* () {
   });
 
   return ReviewService.of({
+    listCommits,
+    getCommitDiff,
     getDiffPreview,
     getDiffFileContents,
     runDiffFileAction,

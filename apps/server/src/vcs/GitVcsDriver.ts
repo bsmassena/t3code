@@ -12,6 +12,10 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import {
   GitCommandError,
   VcsProcessExitError,
+  type ReviewCommitDiffInput,
+  type ReviewCommitDiffResult,
+  type ReviewCommitListInput,
+  type ReviewCommitListResult,
   type VcsSwitchRefInput,
   type VcsSwitchRefResult,
   type VcsCreateRefInput,
@@ -265,6 +269,12 @@ export class GitVcsDriver extends Context.Service<
     readonly getReviewDiffPreview: (
       input: ReviewDiffPreviewInput,
     ) => Effect.Effect<ReviewDiffPreviewResult, GitCommandError>;
+    readonly listReviewCommits: (
+      input: ReviewCommitListInput,
+    ) => Effect.Effect<ReviewCommitListResult, GitCommandError>;
+    readonly getReviewCommitDiff: (
+      input: ReviewCommitDiffInput,
+    ) => Effect.Effect<ReviewCommitDiffResult, GitCommandError>;
     readonly getReviewDiffFileContents: (
       input: ReviewDiffFileContentsInput,
     ) => Effect.Effect<ReviewDiffFileContentsResult, GitCommandError>;

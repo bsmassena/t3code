@@ -10,6 +10,7 @@ export type DiffPanelSelection =
   | { kind: "working-tree" }
   | { kind: "unstaged" }
   | { kind: "staged" }
+  | { kind: "commit"; commitSha: string }
   | { kind: "turn"; turnId: RunId; filePath: string | null; revealRequestId: number };
 
 export type DiffRenderMode = "stacked" | "split";
@@ -37,6 +38,7 @@ interface DiffPanelStoreState {
     scope: "branch" | "working-tree" | "unstaged" | "staged",
   ) => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
+  selectCommit: (ref: ScopedThreadRef, commitSha: string) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: RunId, filePath?: string) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<RunId>) => void;
   toggleDiffFileExpanded: (scopeKey: string, fileKey: string) => void;
@@ -97,6 +99,18 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             branchBaseRefByThreadKey: {
               ...state.branchBaseRefByThreadKey,
               [threadKey]: normalizedBaseRef,
+            },
+          };
+        }),
+      selectCommit: (ref, commitSha) =>
+        set((state) => {
+          const normalizedCommitSha = commitSha.trim();
+          if (!normalizedCommitSha) return state;
+          const threadKey = scopedThreadKey(ref);
+          return {
+            byThreadKey: {
+              ...state.byThreadKey,
+              [threadKey]: { kind: "commit", commitSha: normalizedCommitSha },
             },
           };
         }),

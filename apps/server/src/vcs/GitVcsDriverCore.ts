@@ -21,6 +21,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   GitCommandError,
+  type ReviewCommitDiffInput,
+  type ReviewCommitListInput,
   type ReviewDiffFileActionInput,
   type ReviewDiffFileContentsInput,
   type ReviewDiffPreviewInput,
@@ -2331,6 +2333,105 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     };
   });
 
+  const listReviewCommits = Effect.fn("listReviewCommits")(function* (
+    input: ReviewCommitListInput,
+  ) {
+    const headResult = yield* executeGit(
+      "GitVcsDriver.listReviewCommits.head",
+      input.cwd,
+      ["rev-parse", "--verify", "HEAD"],
+      { allowNonZeroExit: true },
+    );
+    if (headResult.exitCode !== 0) return { cwd: input.cwd, commits: [] };
+    const result = yield* executeGit(
+      "GitVcsDriver.listReviewCommits",
+      input.cwd,
+      [
+        "log",
+        `--max-count=${input.limit ?? 50}`,
+        "--format=%H%x00%cI%x00%s%x00",
+        "--no-decorate",
+        "HEAD",
+      ],
+      { maxOutputBytes: 120_000 },
+    );
+    const fields = result.stdout.split("\0");
+    const commits: Array<{ sha: string; subject: string; committedAt: string }> = [];
+    for (let index = 0; index + 2 < fields.length; index += 3) {
+      const sha = fields[index]?.trim();
+      const committedAt = fields[index + 1]?.trim();
+      const subject = fields[index + 2]?.trim();
+      if (!sha || !committedAt) continue;
+      commits.push({ sha, committedAt, subject: subject || "(no subject)" });
+    }
+    return { cwd: input.cwd, commits };
+  });
+
+  const getReviewCommitDiff = Effect.fn("getReviewCommitDiff")(function* (
+    input: ReviewCommitDiffInput,
+  ) {
+    const commitSha = yield* runGitStdout("GitVcsDriver.getReviewCommitDiff.resolve", input.cwd, [
+      "rev-parse",
+      "--verify",
+      `${input.commitSha}^{commit}`,
+    ]).pipe(Effect.map((stdout) => stdout.trim()));
+    const parentResult = yield* executeGit(
+      "GitVcsDriver.getReviewCommitDiff.parent",
+      input.cwd,
+      ["rev-parse", "--verify", `${commitSha}^`],
+      { allowNonZeroExit: true },
+    );
+    const parentSha = parentResult.exitCode === 0 ? parentResult.stdout.trim() || null : null;
+    const commonArgs = [
+      "--patch",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--minimal",
+      ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
+    ];
+    const diffResult = yield* executeGit(
+      "GitVcsDriver.getReviewCommitDiff.patch",
+      input.cwd,
+      parentSha
+        ? ["diff", ...commonArgs, parentSha, commitSha, "--"]
+        : ["show", "--format=", ...commonArgs, commitSha, "--"],
+      {
+        maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES,
+        appendTruncationMarker: true,
+      },
+    );
+    const diffHash = yield* crypto
+      .digest("SHA-256", new TextEncoder().encode(diffResult.stdout))
+      .pipe(
+        Effect.map(Encoding.encodeHex),
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation: "GitVcsDriver.getReviewCommitDiff.hash",
+              command: "crypto.digest SHA-256",
+              cwd: input.cwd,
+              detail: "Failed to hash commit diff.",
+              cause,
+            }),
+        ),
+      );
+    return {
+      cwd: input.cwd,
+      generatedAt: yield* DateTime.now,
+      source: {
+        id: `commit:${commitSha}`,
+        kind: "commit" as const,
+        title: `Commit ${commitSha.slice(0, 8)}`,
+        baseRef: parentSha,
+        headRef: commitSha,
+        diff: diffResult.stdout,
+        diffHash,
+        truncated: diffResult.stdoutTruncated,
+      },
+    };
+  });
+
   const reviewDiffFileError = (
     input: ReviewDiffFileContentsInput,
     detail: string,
@@ -2487,6 +2588,27 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           input.changeType === "deleted"
             ? Effect.succeed("")
             : readReviewFileFromIndex(input, input.newPath),
+        ],
+        { concurrency: 2 },
+      );
+      return { oldContents, newContents };
+    }
+
+    if (input.sourceKind === "commit") {
+      if (!input.headRef) {
+        return yield* reviewDiffFileError(
+          input,
+          "Commit diff file expansion requires a commit ref.",
+        );
+      }
+      const [oldContents, newContents] = yield* Effect.all(
+        [
+          input.changeType === "new" || !input.baseRef
+            ? Effect.succeed("")
+            : readReviewFileAtRevision(input, input.baseRef, input.oldPath),
+          input.changeType === "deleted"
+            ? Effect.succeed("")
+            : readReviewFileAtRevision(input, input.headRef, input.newPath),
         ],
         { concurrency: 2 },
       );
@@ -3349,6 +3471,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       withListRefsInvalidation(cwd, pushCurrentBranch(cwd, fallbackBranch, options)),
     pullCurrentBranch: (cwd) => withListRefsInvalidation(cwd, pullCurrentBranch(cwd)),
     readRangeContext,
+    listReviewCommits,
+    getReviewCommitDiff,
     getReviewDiffPreview,
     getReviewDiffFileContents,
     runReviewDiffFileAction,

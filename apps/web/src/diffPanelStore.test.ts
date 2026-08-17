@@ -71,6 +71,14 @@ describe("diffPanelStore", () => {
     ).toEqual({ kind: "staged" });
   });
 
+  it("selects a committed diff as a distinct scope", () => {
+    useDiffPanelStore.getState().selectCommit(THREAD_REF, " abc123 ");
+
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "commit", commitSha: "abc123" });
+  });
+
   it("selects the combined working tree as a distinct scope", () => {
     useDiffPanelStore.getState().selectGitScope(THREAD_REF, "working-tree");
 

@@ -818,6 +818,66 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("lists recent commits and previews only the selected commit", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        yield* writeTextFile(cwd, "first.ts", "export const first = true;\n");
+        yield* git(cwd, ["add", "first.ts"]);
+        yield* git(cwd, ["commit", "-m", "add first file"]);
+        const firstCommit = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        yield* writeTextFile(cwd, "second.ts", "export const second = true;\n");
+        yield* git(cwd, ["add", "second.ts"]);
+        yield* git(cwd, ["commit", "-m", "add second file"]);
+        const secondCommit = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const history = yield* driver.listReviewCommits({ cwd, limit: 10 });
+        assert.strictEqual(history.commits[0]?.sha, secondCommit);
+        assert.strictEqual(history.commits[0]?.subject, "add second file");
+        assert.strictEqual(history.commits[1]?.sha, firstCommit);
+
+        const preview = yield* driver.getReviewCommitDiff({
+          cwd,
+          commitSha: firstCommit,
+          ignoreWhitespace: false,
+        });
+        assert.strictEqual(preview.source.kind, "commit");
+        assert.strictEqual(preview.source.headRef, firstCommit);
+        assert.include(preview.source.diff, "first.ts");
+        assert.notInclude(preview.source.diff, "second.ts");
+
+        const contents = yield* driver.getReviewDiffFileContents(
+          makeReviewDiffFileContentsInput(cwd, {
+            sourceKind: "commit",
+            changeType: "new",
+            baseRef: preview.source.baseRef,
+            headRef: preview.source.headRef,
+            oldPath: "first.ts",
+            newPath: "first.ts",
+          }),
+        );
+        assert.deepStrictEqual(contents, {
+          oldContents: "",
+          newContents: "export const first = true;\n",
+        });
+      }),
+    );
+
+    it.effect("returns an empty commit list for an unborn repository", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.initRepo({ cwd });
+
+        const history = yield* driver.listReviewCommits({ cwd, limit: 10 });
+
+        assert.deepStrictEqual(history.commits, []);
+      }),
+    );
+
     it.effect("separates staged, unstaged, and untracked changes", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
