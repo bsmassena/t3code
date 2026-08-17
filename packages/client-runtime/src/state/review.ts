@@ -14,6 +14,16 @@ export function createReviewEnvironmentAtoms<R, E>(
 ) {
   const diffFileScheduler = createAtomCommandScheduler();
   return {
+    commitList: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:review:commit-list",
+      tag: WS_METHODS.reviewListCommits,
+      staleTimeMs: 5_000,
+    }),
+    commitDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:review:commit-diff",
+      tag: WS_METHODS.reviewGetCommitDiff,
+      staleTimeMs: 5_000,
+    }),
     diffPreview: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:review:diff-preview",
       tag: WS_METHODS.reviewGetDiffPreview,
