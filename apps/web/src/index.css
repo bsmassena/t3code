@@ -2506,17 +2506,19 @@ label:has(> select#reasoning-effort) select {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 
-/* Collapsed (default): single-line cells truncate so arbitrary chat content
-   cannot blow the column out; the footer toggle expands cells to wrap. */
-.chat-markdown .chat-markdown-table-container[data-expanded="false"] th,
-.chat-markdown .chat-markdown-table-container[data-expanded="false"] td {
+/* Inline: single-line cells truncate so arbitrary chat content cannot blow
+   the column out; the footer expand button opens the full table in a dialog. */
+.chat-markdown .chat-markdown-table-container th,
+.chat-markdown .chat-markdown-table-container td {
   overflow: hidden;
   max-width: 24rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chat-markdown .chat-markdown-table-container[data-expanded="true"] td {
+/* Expanded dialog: cells wrap within a capped column width; tables wider or
+   taller than the dialog scroll inside its scroll area instead. */
+.chat-markdown.chat-markdown-table-dialog td {
   max-width: 24rem;
   overflow-wrap: anywhere;
 }
