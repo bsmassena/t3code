@@ -51,4 +51,14 @@ describe("ExecutionEnvironmentDescriptor", () => {
       }).capabilities.fileAttachments,
     ).toEqual({ maxUploadBytes: 50 * 1024 * 1024 });
   });
+
+  it("preserves advertised local review sources across version skew", () => {
+    expect(decodeDescriptor(descriptor).capabilities.localReviewSources).toBeUndefined();
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        capabilities: { ...descriptor.capabilities, localReviewSources: true },
+      }).capabilities.localReviewSources,
+    ).toBe(true);
+  });
 });
