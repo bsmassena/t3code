@@ -26,4 +26,14 @@ describe("ExecutionEnvironmentDescriptor", () => {
       }).capabilities.pullRequests,
     ).toBe(true);
   });
+
+  it("preserves advertised local review sources across version skew", () => {
+    expect(decodeDescriptor(descriptor).capabilities.localReviewSources).toBeUndefined();
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        capabilities: { ...descriptor.capabilities, localReviewSources: true },
+      }).capabilities.localReviewSources,
+    ).toBe(true);
+  });
 });

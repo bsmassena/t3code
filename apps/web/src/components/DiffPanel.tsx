@@ -499,9 +499,9 @@ export default function DiffPanel({
   const refreshCommitDiff = commitDiff.refresh;
   const refreshCommitList = commitList.refresh;
   const refreshSelectedGitDiff = useCallback(() => {
+    refreshCommitList();
     if (selectedCommitSha) {
       refreshCommitDiff();
-      refreshCommitList();
       return;
     }
     refreshBranchDiffPreview();
@@ -542,7 +542,7 @@ export default function DiffPanel({
     ...(branchDiffPreview.data?.localSources ?? []),
   ];
   const supportsLocalGitSources =
-    selectedCommitSha !== null || branchDiffPreview.data?.localSources !== undefined;
+    serverConfig?.environment.capabilities.localReviewSources === true;
   const selectedGitSource = selectedCommitSha
     ? commitDiff.data?.source
     : gitSources.find(
@@ -926,7 +926,11 @@ export default function DiffPanel({
                 <CheckIcon className="ml-auto" />
               )}
             </DropdownMenuItem>
-            <DropdownMenuSub>
+            <DropdownMenuSub
+              onOpenChange={(open) => {
+                if (open) refreshCommitList();
+              }}
+            >
               <DropdownMenuSubTrigger
                 className={selectedCommitSha !== null ? "bg-foreground/[0.08]" : undefined}
               >
