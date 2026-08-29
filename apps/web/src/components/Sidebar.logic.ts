@@ -622,7 +622,7 @@ export function sortThreadsForSidebar<
     readonly id: string;
     readonly unsettledAt?: string | null | undefined;
   } & ThreadSortInput,
->(threads: readonly T[], sortOrder: SidebarThreadSortOrder): T[] {
+>(threads: readonly T[], sortOrder: SidebarThreadSortOrder = "created_at"): T[] {
   const timestamp = (thread: T) =>
     sortOrder === "created_at"
       ? activeThreadAnchorTimestampMs(thread)
