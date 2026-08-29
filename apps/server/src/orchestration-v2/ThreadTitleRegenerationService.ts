@@ -10,6 +10,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schedule from "effect/Schedule";
 
 import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
 import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
@@ -220,13 +221,20 @@ export const make = Effect.gen(function* () {
       }
 
       const settings = yield* serverSettings.getSettings;
-      const result = yield* textGeneration.generateThreadTitle({
-        cwd: projection.thread.worktreePath ?? project.value.workspaceRoot,
-        message: context.message,
-        attachments: context.attachments,
-        ...(input.kind.type === "regenerate" ? { previousTitle: projection.thread.title } : {}),
-        modelSelection: settings.textGenerationModelSelection,
-      });
+      const result = yield* textGeneration
+        .generateThreadTitle({
+          cwd: projection.thread.worktreePath ?? project.value.workspaceRoot,
+          message: context.message,
+          attachments: context.attachments,
+          ...(input.kind.type === "regenerate" ? { previousTitle: projection.thread.title } : {}),
+          modelSelection: settings.textGenerationModelSelection,
+        })
+        .pipe(
+          Effect.retry({
+            times: 2,
+            schedule: Schedule.exponential("2 seconds"),
+          }),
+        );
       const generatedTitle = result.title.trim();
       return generatedTitle === "New thread" ||
         (input.kind.type === "regenerate" && generatedTitle === projection.thread.title.trim())

@@ -331,6 +331,7 @@ import {
   dismissBranchMismatchForSession,
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
+  shoulderTabReserve,
   shouldShowBranchMismatchBanner,
   shouldShowPlanFollowUpPrompt,
   getStartedThreadModelChangeBlockReason,
@@ -1542,30 +1543,12 @@ function ChatViewContent(props: ChatViewProps) {
   const legendListRef = useRef<LegendListRef | null>(null);
   const [composerOverlayElement, setComposerOverlayElement] = useState<HTMLDivElement | null>(null);
   const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
+  const [scrollToEndClearance, setScrollToEndClearance] = useState(0);
   const isAtEndRef = useRef(true);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewPromotionInFlightByMessageIdRef = useRef<Record<string, true>>({});
   const sendInFlightRef = useRef(false);
   const terminalUiOpenByThreadRef = useRef<Record<string, boolean>>({});
-
-  useLayoutEffect(() => {
-    if (!composerOverlayElement) return;
-
-    const updateHeight = () => {
-      const nextHeight = Math.ceil(composerOverlayElement.getBoundingClientRect().height);
-      if (nextHeight <= 0) return;
-      setComposerOverlayHeight((currentHeight) =>
-        currentHeight === nextHeight ? currentHeight : nextHeight,
-      );
-    };
-
-    updateHeight();
-    if (typeof ResizeObserver === "undefined") return;
-
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(composerOverlayElement);
-    return () => observer.disconnect();
-  }, [composerOverlayElement]);
 
   const terminalUiState = useTerminalUiStateStore((state) =>
     selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef),
@@ -1934,6 +1917,35 @@ function ChatViewContent(props: ChatViewProps) {
   const activeComposerTaskSteps =
     activeComposerTasksProgress && activePlan ? activePlan.steps : null;
   const workingStepLabel = activeComposerTasksProgress?.step ?? null;
+
+  useLayoutEffect(() => {
+    if (!composerOverlayElement) return;
+
+    const updateHeight = () => {
+      const nextHeight = Math.ceil(composerOverlayElement.getBoundingClientRect().height);
+      if (nextHeight <= 0) return;
+      setComposerOverlayHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+      const nextClearance = Math.max(0, nextHeight - shoulderTabReserve(composerOverlayElement));
+      setScrollToEndClearance((currentClearance) =>
+        currentClearance === nextClearance ? currentClearance : nextClearance,
+      );
+    };
+
+    updateHeight();
+    if (typeof ResizeObserver === "undefined") return;
+
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(composerOverlayElement);
+    const tabObserver = new MutationObserver(updateHeight);
+    tabObserver.observe(composerOverlayElement, { childList: true, subtree: true });
+    return () => {
+      resizeObserver.disconnect();
+      tabObserver.disconnect();
+    };
+  }, [composerOverlayElement]);
+
   const activeProjectRef = useMemo(
     () =>
       activeThread ? scopeProjectRef(activeThread.environmentId, activeThread.projectId) : null,
@@ -7141,8 +7153,8 @@ function ChatViewContent(props: ChatViewProps) {
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (
                 <div
-                  className="chat-scroll-to-bottom pointer-events-none absolute z-30 flex justify-center py-1.5"
-                  style={{ bottom: composerOverlayHeight + 4 }}
+                  className="pointer-events-none absolute left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5"
+                  style={{ bottom: scrollToEndClearance + 4 }}
                 >
                   <Button
                     aria-label="Scroll to end"
@@ -7172,11 +7184,11 @@ function ChatViewContent(props: ChatViewProps) {
                 ref={draftHeroTransition.transitionGroupRef}
                 className="chat-composer-horizontal-inset w-full"
               >
-                <div className="pointer-events-auto relative z-10">
+                <div className="group/composer-stack pointer-events-auto relative z-10">
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full">
                       <div
-                        className="pb-8"
+                        className="pb-8 group-has-[.chat-composer-shoulder-tab]/composer-stack:pb-4"
                         style={
                           forceExpandedMobileComposer
                             ? { viewTransitionName: MOBILE_DRAFT_HEADLINE_VIEW_TRANSITION_NAME }

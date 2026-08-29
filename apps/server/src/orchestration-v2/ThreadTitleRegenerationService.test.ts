@@ -6,11 +6,15 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  TextGenerationError,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
 
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
@@ -340,6 +344,57 @@ describe("ThreadTitleRegenerationService", () => {
 
         const projection = yield* threads.getThreadProjection(threadId);
         assert.equal(projection.thread.title, "Seed title");
+        assert.isNotOk(projection.thread.titleRegeneration);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
+  it.effect("retries thread title generation after a transient failure", () =>
+    Effect.gen(function* () {
+      let attempts = 0;
+      const firstAttempt = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        generateTitle: () =>
+          Effect.suspend(() => {
+            attempts += 1;
+            return attempts === 1
+              ? Deferred.succeed(firstAttempt, undefined).pipe(
+                  Effect.andThen(
+                    Effect.fail(
+                      new TextGenerationError({
+                        operation: "generateThreadTitle",
+                        detail: "Claude CLI request timed out.",
+                      }),
+                    ),
+                  ),
+                )
+              : Effect.succeed({ title: "Fresh title" });
+          }),
+      });
+      yield* Effect.gen(function* () {
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const titleRegeneration = yield* ThreadTitleRegeneration.ThreadTitleRegenerationService;
+        const threadId = yield* createThread({
+          command: "command:title:retry:create",
+          thread: "thread:title:retry",
+        });
+        yield* dispatchUserMessage({
+          command: "command:title:retry:message",
+          threadId,
+          text: "Investigate reconnect failures",
+        });
+        const requestId = yield* armRegeneration({ command: "command:title:retry:1", threadId });
+
+        const execution = yield* titleRegeneration
+          .execute({ threadId, requestId, kind: { type: "regenerate" } })
+          .pipe(Effect.forkScoped);
+        yield* Deferred.await(firstAttempt);
+        yield* TestClock.adjust("10 seconds");
+        yield* Fiber.join(execution);
+
+        assert.equal(attempts, 2);
+        const projection = yield* threads.getThreadProjection(threadId);
+        assert.equal(projection.thread.title, "Fresh title");
         assert.isNotOk(projection.thread.titleRegeneration);
       }).pipe(Effect.provide(harness.layer));
     }),
