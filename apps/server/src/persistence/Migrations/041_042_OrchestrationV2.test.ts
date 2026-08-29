@@ -8,7 +8,7 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("038_039_OrchestrationV2", (it) => {
+layer("041_042_OrchestrationV2", (it) => {
   it.effect("keeps released and private migration ids contiguous", () =>
     Effect.sync(() => {
       assert.deepStrictEqual(
@@ -22,7 +22,7 @@ layer("038_039_OrchestrationV2", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 45 });
+      yield* runMigrations({ toMigrationInclusive: 42 });
 
       const migrations = yield* sql<{
         readonly migration_id: number;
@@ -30,24 +30,16 @@ layer("038_039_OrchestrationV2", (it) => {
       }>`
         SELECT migration_id, name
         FROM effect_sql_migrations
-        WHERE migration_id IN (42, 43, 44, 45)
+        WHERE migration_id IN (41, 42)
         ORDER BY migration_id
       `;
       assert.deepStrictEqual(migrations, [
         {
-          migration_id: 42,
-          name: "ProjectionThreadLinkedPullRequest",
-        },
-        {
-          migration_id: 43,
-          name: "ProjectionThreadsUnsettledAt",
-        },
-        {
-          migration_id: 44,
+          migration_id: 41,
           name: "OrchestrationV2",
         },
         {
-          migration_id: 45,
+          migration_id: 42,
           name: "OrchestrationV2Subagents",
         },
       ]);
@@ -64,10 +56,10 @@ layer("038_039_OrchestrationV2", (it) => {
     }),
   );
 
-  it.effect("backfills provider-session thread bindings in migration 047", () =>
+  it.effect("backfills provider-session thread bindings in migration 044", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 46 });
+      yield* runMigrations({ toMigrationInclusive: 43 });
       yield* sql`
         INSERT INTO orchestration_v2_projection_provider_sessions (
           provider_session_id,
@@ -92,7 +84,7 @@ layer("038_039_OrchestrationV2", (it) => {
         )
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 47 });
+      yield* runMigrations({ toMigrationInclusive: 44 });
 
       const bindings = yield* sql<{
         readonly provider_session_id: string;
@@ -110,10 +102,10 @@ layer("038_039_OrchestrationV2", (it) => {
     }),
   );
 
-  it.effect("preserves turn items with colliding ordinals in migration 046", () =>
+  it.effect("preserves turn items with colliding ordinals in migration 043", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 45 });
+      yield* runMigrations({ toMigrationInclusive: 42 });
       yield* sql`
         INSERT INTO orchestration_v2_projection_runs (
           run_id,
@@ -150,7 +142,7 @@ layer("038_039_OrchestrationV2", (it) => {
           ('turn-item:d', 'thread:two', NULL, 42, 'assistant_message', 'completed', '2026-01-01T00:00:00.000Z', '{}')
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 46 });
+      yield* runMigrations({ toMigrationInclusive: 43 });
 
       const positions = yield* sql<{
         readonly thread_id: string;
@@ -171,11 +163,11 @@ layer("038_039_OrchestrationV2", (it) => {
   );
 });
 
-it.effect("upgrades a database already at released main migration 043", () =>
+it.effect("upgrades a database already at the deployed fork migration 049", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
 
-    yield* runMigrations({ toMigrationInclusive: 43 });
+    yield* runMigrations({ toMigrationInclusive: 49 });
     const snoozeColumns = yield* sql<{ readonly name: string }>`
       PRAGMA table_info(projection_threads)
     `;
@@ -198,18 +190,18 @@ it.effect("upgrades a database already at released main migration 043", () =>
       [
         [39, "ProjectionProjectsDefaultThreadEnvMode"],
         [40, "ProjectionProjectFaviconPath"],
-        [41, "AuthSessionClientConnection"],
-        [42, "ProjectionThreadLinkedPullRequest"],
-        [43, "ProjectionThreadsUnsettledAt"],
-        [44, "OrchestrationV2"],
-        [45, "OrchestrationV2Subagents"],
-        [46, "OrchestrationV2Foundation"],
-        [47, "OrchestrationV2ProviderSessionBindings"],
-        [48, "OrchestrationV2ThreadLaunchWorkflows"],
-        [49, "ApplicationEventSource"],
-        [50, "OrchestrationV2EffectCancellation"],
-        [51, "ScheduledTasks"],
-        [52, "LegacyV1ImportState"],
+        [41, "OrchestrationV2"],
+        [42, "OrchestrationV2Subagents"],
+        [43, "OrchestrationV2Foundation"],
+        [44, "OrchestrationV2ProviderSessionBindings"],
+        [45, "OrchestrationV2ThreadLaunchWorkflows"],
+        [46, "ApplicationEventSource"],
+        [47, "OrchestrationV2EffectCancellation"],
+        [48, "ScheduledTasks"],
+        [49, "LegacyV1ImportState"],
+        [50, "AuthSessionClientConnection"],
+        [51, "ProjectionThreadLinkedPullRequest"],
+        [52, "ProjectionThreadsUnsettledAt"],
       ],
     );
 
