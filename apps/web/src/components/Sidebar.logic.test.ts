@@ -1000,6 +1000,7 @@ describe("sortThreadsForSidebar", () => {
       {
         id: "old-unsettled",
         createdAt: "2026-03-09T08:00:00.000Z",
+        updatedAt: "2026-03-09T08:00:00.000Z",
         unsettledAt: "2026-03-09T13:00:00.000Z",
       },
       sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
@@ -1014,6 +1015,7 @@ describe("sortThreadsForSidebar", () => {
       {
         id: "stale-stamp",
         createdAt: "2026-03-09T10:00:00.000Z",
+        updatedAt: "2026-03-09T10:00:00.000Z",
         unsettledAt: "2026-03-09T09:00:00.000Z",
       },
       sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
