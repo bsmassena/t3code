@@ -2,6 +2,7 @@ import {
   CommandId,
   DEFAULT_MODEL,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  MessageId,
   type ModelSelection,
   ProjectId,
   ProviderInstanceId,
@@ -15,6 +16,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -70,8 +72,64 @@ export class ServerRuntimeStartup extends Context.Service<
     readonly enqueueCommand: <A, E>(
       effect: Effect.Effect<A, E>,
     ) => Effect.Effect<A, E | ServerRuntimeStartupError>;
+    readonly markRunningProviderSessionsForContinuation: Effect.Effect<
+      ReadonlyArray<ThreadId>,
+      ServerUpdateThreadContinuationError
+    >;
+    readonly clearProviderSessionContinuationMarkers: (
+      threadIds: ReadonlyArray<ThreadId>,
+    ) => Effect.Effect<void, ServerUpdateThreadContinuationError>;
   }
 >()("t3/serverRuntimeStartup") {}
+
+const ServerUpdateContinuationMarker = Schema.Struct({
+  threadId: ThreadId,
+  token: Schema.String,
+});
+type ServerUpdateContinuationMarker = typeof ServerUpdateContinuationMarker.Type;
+
+const ServerUpdateContinuationState = Schema.Struct({
+  version: Schema.Literal(1),
+  markers: Schema.Array(ServerUpdateContinuationMarker),
+});
+
+const decodeServerUpdateContinuationState = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(ServerUpdateContinuationState),
+);
+
+const SERVER_UPDATE_CONTINUATION_PROMPT = "Continue where you left off.";
+
+export class ServerUpdateThreadContinuationError extends Schema.TaggedErrorClass<ServerUpdateThreadContinuationError>()(
+  "ServerUpdateThreadContinuationError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not prepare running threads to continue after the update.";
+  }
+}
+
+const isServerUpdateThreadContinuationError = Schema.is(ServerUpdateThreadContinuationError);
+
+export function selectThreadIdsForServerUpdateContinuation(
+  threads: ReadonlyArray<{
+    readonly id: ThreadId;
+    readonly activityRunStatus?:
+      | "preparing"
+      | "starting"
+      | "running"
+      | "waiting"
+      | null
+      | undefined;
+    readonly pendingBackgroundTasks?: ReadonlyArray<unknown> | undefined;
+  }>,
+): ReadonlyArray<ThreadId> {
+  return threads
+    .filter(
+      (thread) =>
+        thread.activityRunStatus != null || (thread.pendingBackgroundTasks?.length ?? 0) > 0,
+    )
+    .map((thread) => thread.id);
+}
 
 interface QueuedCommand {
   readonly run: Effect.Effect<void, never>;
@@ -376,7 +434,101 @@ export const make = (options?: StartupOptions) =>
     const serverSettings = yield* ServerSettings.ServerSettingsService;
     const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
     const crypto = yield* Crypto.Crypto;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const threads = yield* ThreadManagement.ThreadManagementService;
     const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
+    const continuationStatePath = path.join(
+      serverConfig.stateDir,
+      "server-update-continuations.json",
+    );
+
+    const readContinuationMarkers = fileSystem.readFileString(continuationStatePath).pipe(
+      Effect.matchEffect({
+        onFailure: (cause) =>
+          cause.reason._tag === "NotFound"
+            ? Effect.succeed<ReadonlyArray<ServerUpdateContinuationMarker>>([])
+            : Effect.fail(cause),
+        onSuccess: (contents) =>
+          decodeServerUpdateContinuationState(contents).pipe(Effect.map((state) => state.markers)),
+      }),
+      Effect.mapError((cause) => new ServerUpdateThreadContinuationError({ cause })),
+    );
+
+    const writeContinuationMarkers = (
+      markers: ReadonlyArray<ServerUpdateContinuationMarker>,
+    ): Effect.Effect<void, ServerUpdateThreadContinuationError> =>
+      (markers.length === 0
+        ? fileSystem.remove(continuationStatePath, { force: true })
+        : fileSystem.writeFileString(
+            continuationStatePath,
+            `${JSON.stringify({ version: 1, markers })}\n`,
+          )
+      ).pipe(Effect.mapError((cause) => new ServerUpdateThreadContinuationError({ cause })));
+
+    const clearProviderSessionContinuationMarkers = (
+      threadIds: ReadonlyArray<ThreadId>,
+    ): Effect.Effect<void, ServerUpdateThreadContinuationError> => {
+      if (threadIds.length === 0) return Effect.void;
+      const removed = new Set(threadIds);
+      return readContinuationMarkers.pipe(
+        Effect.flatMap((markers) =>
+          writeContinuationMarkers(markers.filter((marker) => !removed.has(marker.threadId))),
+        ),
+      );
+    };
+
+    const markRunningProviderSessionsForContinuation = Effect.gen(function* () {
+      const snapshot = yield* threads.getShellSnapshot();
+      const threadIds = selectThreadIdsForServerUpdateContinuation(snapshot.threads);
+      const markers = yield* Effect.forEach(threadIds, (threadId) =>
+        crypto.randomUUIDv4.pipe(
+          Effect.map((token) => ({ threadId, token }) satisfies ServerUpdateContinuationMarker),
+        ),
+      );
+      yield* writeContinuationMarkers(markers);
+      return threadIds;
+    }).pipe(
+      Effect.mapError((cause) =>
+        isServerUpdateThreadContinuationError(cause)
+          ? cause
+          : new ServerUpdateThreadContinuationError({ cause }),
+      ),
+    );
+
+    const continueThreadsAfterServerUpdate = Effect.gen(function* () {
+      const markers = yield* readContinuationMarkers;
+      yield* Effect.forEach(
+        markers,
+        (marker) =>
+          Effect.gen(function* () {
+            const projection = yield* threads.getThreadProjection(marker.threadId);
+            if (projection.thread.archivedAt !== null || projection.thread.deletedAt !== null) {
+              return;
+            }
+            yield* threads.sendToThread({
+              projectId: projection.thread.projectId,
+              commandId: CommandId.make(`server-update-continuation:${marker.token}`),
+              threadId: marker.threadId,
+              messageId: MessageId.make(`server-update-continuation:${marker.token}`),
+              text: SERVER_UPDATE_CONTINUATION_PROMPT,
+              attachments: [],
+              mode: "auto",
+              createdBy: "system",
+              creationSource: "server",
+            });
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("failed to continue thread after server update", {
+                threadId: marker.threadId,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          ),
+        { discard: true },
+      );
+      yield* writeContinuationMarkers([]);
+    });
 
     const commandGate = yield* makeCommandGate;
     const httpListening = yield* Deferred.make<void>();
@@ -505,6 +657,16 @@ export const make = (options?: StartupOptions) =>
         ).pipe(Effect.map((targets): AutoBootstrapWelcomeTargets => targets)),
       });
       yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
+      yield* runStartupPhase(
+        "orchestration-v2.server-update-continuation",
+        continueThreadsAfterServerUpdate,
+      ).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not restore thread continuations after server update", {
+            cause: Cause.pretty(cause),
+          }),
+        ),
+      );
 
       const importPendingTranscripts = legacyV1ThreadImporter.importPendingTranscripts.pipe(
         Effect.tap((summary) =>
@@ -661,6 +823,8 @@ export const make = (options?: StartupOptions) =>
       awaitCommandReady: commandGate.awaitCommandReady,
       markHttpListening: Deferred.succeed(httpListening, undefined),
       enqueueCommand: commandGate.enqueueCommand,
+      markRunningProviderSessionsForContinuation,
+      clearProviderSessionContinuationMarkers,
     } satisfies ServerRuntimeStartup["Service"];
   });
 

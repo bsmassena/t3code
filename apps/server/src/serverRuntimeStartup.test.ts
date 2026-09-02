@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { DEFAULT_MODEL, ProviderInstanceId } from "@t3tools/contracts";
+import { DEFAULT_MODEL, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -14,6 +14,19 @@ it("uses the canonical Codex model for auto-bootstrap", () => {
     instanceId: ProviderInstanceId.make("codex"),
     model: DEFAULT_MODEL,
   });
+});
+
+it("marks only threads with active provider work for update continuation", () => {
+  const running = ThreadId.make("thread-running");
+  const background = ThreadId.make("thread-background");
+  assert.deepStrictEqual(
+    ServerRuntimeStartup.selectThreadIdsForServerUpdateContinuation([
+      { id: ThreadId.make("thread-idle"), activityRunStatus: null, pendingBackgroundTasks: [] },
+      { id: running, activityRunStatus: "running", pendingBackgroundTasks: [] },
+      { id: background, activityRunStatus: null, pendingBackgroundTasks: [{}] },
+    ]),
+    [running, background],
+  );
 });
 
 it.effect("runs projection repair, recovery, worker startup, and bootstrap in order", () =>
