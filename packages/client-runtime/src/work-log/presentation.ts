@@ -13,8 +13,8 @@ import {
 } from "@t3tools/shared/t3McpToolPresentation";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 
-import { classifyMarkdownImageSource } from "../markdownImages.js";
-import { resolveMediaSource } from "../mediaSource.js";
+import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
+import { resolveMediaSource } from "@t3tools/client-runtime/media-source";
 
 import {
   summarizeT3ToolCalls,
