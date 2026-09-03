@@ -1435,8 +1435,16 @@ export default function DiffPanel({
                       const filePath = resolveFileDiffPath(fileDiff);
                       const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
                       if (!uiStateKey) return null;
+                      const previousFilePath = resolveFileDiffPreviousPath(fileDiff);
+                      const fileActions = supportsLocalGitSources
+                        ? resolveDiffFileActions({
+                            scope: selectedGitScope,
+                            changeType: fileDiff.type,
+                            isCheckpoint: selectedRunId !== null,
+                          })
+                        : [];
                       return (
-                        <div className="flex items-center gap-3 transition-opacity duration-100">
+                        <div className="flex items-center gap-1 transition-opacity duration-100">
                           <Tooltip>
                             <TooltipTrigger
                               render={
@@ -1456,27 +1464,6 @@ export default function DiffPanel({
                             </TooltipTrigger>
                             <TooltipPopup side="top">Open file in a tab</TooltipPopup>
                           </Tooltip>
-                        </div>
-                      );
-                    }}
-                    renderHeaderMetadata={(fileDiff, fileKey) => {
-                      const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
-                      if (!uiStateKey) return null;
-                      const filePath = resolveFileDiffPath(fileDiff);
-                      const previousFilePath = resolveFileDiffPreviousPath(fileDiff);
-                      const viewed = viewedDiffFileKeys.has(uiStateKey);
-                      const canToggleViewed =
-                        selectedRunId !== null ||
-                        (selectedGitScope !== "staged" && selectedGitScope !== "unstaged");
-                      const fileActions = supportsLocalGitSources
-                        ? resolveDiffFileActions({
-                            scope: selectedGitScope,
-                            changeType: fileDiff.type,
-                            isCheckpoint: selectedRunId !== null,
-                          })
-                        : [];
-                      return (
-                        <div className="flex shrink-0 items-center gap-1 pr-2">
                           {fileActions.includes("revert") && (
                             <DiffHeaderActionButton
                               label="Revert file"
@@ -1514,6 +1501,19 @@ export default function DiffPanel({
                               <MinusIcon className="size-3.5" />
                             </DiffHeaderActionButton>
                           )}
+                        </div>
+                      );
+                    }}
+                    renderHeaderMetadata={(fileDiff, fileKey) => {
+                      const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
+                      if (!uiStateKey) return null;
+                      const filePath = resolveFileDiffPath(fileDiff);
+                      const viewed = viewedDiffFileKeys.has(uiStateKey);
+                      const canToggleViewed =
+                        selectedRunId !== null ||
+                        (selectedGitScope !== "staged" && selectedGitScope !== "unstaged");
+                      return (
+                        <div className="flex shrink-0 items-center gap-1 pr-2">
                           {canToggleViewed && (
                             <button
                               type="button"

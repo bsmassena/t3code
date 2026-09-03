@@ -110,6 +110,32 @@ const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
   background-color: transparent !important;
 }
 
+/* Pierre anchors split separators in the deletion gutter. Give the label the deletion pane in
+   scroll mode, or its content column in wrap mode, instead of clipping it to the line numbers. */
+[data-diff-type="split"][data-overflow="scroll"]
+  [data-deletions]
+  [data-gutter]
+  :is([data-separator="line-info"], [data-separator="line-info-basic"])
+  [data-separator-wrapper] {
+  width: 100cqi !important;
+}
+
+[data-diff-type="split"][data-overflow="wrap"]
+  [data-deletions]
+  [data-gutter]
+  :is([data-separator="line-info"], [data-separator="line-info-basic"])
+  [data-separator-wrapper] {
+  display: none !important;
+}
+
+[data-diff-type="split"][data-overflow="wrap"]
+  [data-deletions]
+  [data-content]
+  :is([data-separator="line-info"], [data-separator="line-info-basic"])
+  [data-separator-wrapper] {
+  display: grid !important;
+}
+
 :is([data-separator="line-info"], [data-separator="line-info-basic"])
   [data-separator-content] {
   gap: 8px;
