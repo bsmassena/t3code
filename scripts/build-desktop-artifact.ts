@@ -1702,7 +1702,7 @@ function windowsVswherePrerequisiteScript(arch: typeof BuildArch.Type): string {
         ]
       : [
           "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-          "Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre",
+          "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre",
         ];
   return [
     "$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\\Installer\\vswhere.exe'",
