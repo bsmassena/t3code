@@ -1,7 +1,8 @@
 import { type EnvironmentId } from "@t3tools/contracts";
-import { memo } from "react";
+import { memo, type MouseEvent as ReactMouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
+import { readLocalApi } from "~/localApi";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -14,6 +15,7 @@ interface ChatHeaderProps {
   activeProjectIcon: import("@t3tools/contracts").ProjectIconOverride | null;
   rightPanelOpen: boolean;
   onNewThreadInProject: () => void;
+  onOpenProjectSettings?: (() => void) | undefined;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -25,13 +27,29 @@ export const ChatHeader = memo(function ChatHeader({
   activeProjectIcon,
   rightPanelOpen,
   onNewThreadInProject,
+  onOpenProjectSettings,
 }: ChatHeaderProps) {
+  const handleContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!onOpenProjectSettings) return;
+    event.preventDefault();
+    const api = readLocalApi();
+    if (!api) return;
+    void api.contextMenu
+      .show([{ id: "project-settings", label: "Project settings", icon: "settings" }], {
+        x: event.clientX,
+        y: event.clientY,
+      })
+      .then((action) => {
+        if (action === "project-settings") onOpenProjectSettings();
+      });
+  };
   return (
     <div
       className={cn(
         "flex min-w-0 flex-1 items-center gap-2 sm:gap-3",
         rightPanelOpen ? "pr-10" : "pr-24",
       )}
+      onContextMenu={handleContextMenu}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
         {/* The project always leads the header: knowing which project a
