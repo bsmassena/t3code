@@ -1386,6 +1386,49 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
   });
 
+  const dispatchThreadVisit = Effect.fn("orchestrationV2.dispatch.threadVisit")(function* (
+    command: Extract<OrchestrationV2Command, { readonly type: "thread.visit" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    if (thread.deletedAt !== null) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Thread ${command.threadId} is deleted.`,
+      });
+    }
+    const visitedAt = DateTime.make(command.visitedAt);
+    if (Option.isNone(visitedAt)) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Thread ${command.threadId} visit time ${command.visitedAt} is not a valid timestamp.`,
+      });
+    }
+    const movesForward =
+      thread.lastVisitedAt === null ||
+      DateTime.toEpochMillis(visitedAt.value) > DateTime.toEpochMillis(thread.lastVisitedAt);
+    // Viewing a thread changes read state only. Loading its transcript (or
+    // bumping updatedAt) makes a routine read receipt scale with its history.
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.visited",
+      threadId: command.threadId,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: yield* DateTime.now,
+      payload: movesForward ? { ...thread, lastVisitedAt: visitedAt.value } : thread,
+    });
+  });
+
   const dispatchThreadMutation = Effect.fn("orchestrationV2.dispatch.threadMutation")(function* (
     command: Extract<
       OrchestrationV2Command,
@@ -1401,7 +1444,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.pin"
           | "thread.unpin"
           | "thread.pin.reorder"
-          | "thread.visit"
           | "thread.mark-unread"
           | "thread.metadata.update"
           | "thread.title.regeneration.complete"
@@ -1548,18 +1590,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       snoozedUntil = parsedSnoozedUntil.value;
     }
-    let visitedAt: DateTime.Utc | null = null;
-    if (command.type === "thread.visit") {
-      const parsedVisitedAt = DateTime.make(command.visitedAt);
-      if (Option.isNone(parsedVisitedAt)) {
-        return yield* new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: `Thread ${command.threadId} visit time ${command.visitedAt} is not a valid timestamp.`,
-        });
-      }
-      visitedAt = parsedVisitedAt.value;
-    }
     let markUnreadVisitedAt: DateTime.Utc | null = null;
     if (command.type === "thread.mark-unread") {
       const latestRunCompletedAt = projection.runs.at(-1)?.completedAt ?? null;
@@ -1678,17 +1708,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: keyUnchanged ? thread.updatedAt : now,
           };
         }
-        // Visited tracking records read state only; it must not bump updatedAt,
-        // otherwise viewing a thread would count as activity (and re-trigger the
-        // clients that dispatch thread.visit whenever updatedAt advances).
-        case "thread.visit": {
-          const previousVisitedAt = thread.lastVisitedAt;
-          const movesForward =
-            visitedAt !== null &&
-            (previousVisitedAt === null ||
-              DateTime.toEpochMillis(visitedAt) > DateTime.toEpochMillis(previousVisitedAt));
-          return movesForward ? { ...thread, lastVisitedAt: visitedAt } : thread;
-        }
         case "thread.mark-unread":
           return { ...thread, lastVisitedAt: markUnreadVisitedAt };
         case "thread.metadata.update":
@@ -1751,8 +1770,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.unpinned" as const;
         case "thread.pin.reorder":
           return "thread.pin-reordered" as const;
-        case "thread.visit":
-          return "thread.visited" as const;
         case "thread.mark-unread":
           return "thread.marked-unread" as const;
         case "thread.metadata.update":
@@ -6921,16 +6938,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.create":
         yield* dispatchThreadCreate(command, events);
         break;
+      case "thread.visit":
+        yield* dispatchThreadVisit(command, events);
+        break;
       case "thread.auto-settle": {
         // Automatic settlement (#8600): the sweep evaluated a shell snapshot,
         // so re-check against the live thread before settling. Any change
         // after the snapshot — or any explicit override, including the
         // un-settle button's "active" — wins over the sweep.
-        const projection = yield* loadProjectionForCommand(command);
+        const thread = yield* projectionStore
+          .getThread(command.threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+            ),
+          );
         if (
-          projection.thread.settledOverride !== null ||
-          DateTime.toEpochMillis(projection.thread.updatedAt) >
-            DateTime.toEpochMillis(command.snapshotAt)
+          thread.settledOverride !== null ||
+          DateTime.toEpochMillis(thread.updatedAt) > DateTime.toEpochMillis(command.snapshotAt)
         ) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
@@ -6960,7 +6985,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pin":
       case "thread.unpin":
       case "thread.pin.reorder":
-      case "thread.visit":
       case "thread.mark-unread":
       case "thread.metadata.update":
       case "thread.title.regeneration.complete":

@@ -34,6 +34,7 @@ import { ServerActivation } from "../serverActivation.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { OrchestratorV2, type OrchestratorV2Shape } from "./Orchestrator.ts";
+import { ProjectionStoreV2 } from "./ProjectionStore.ts";
 import * as ThreadSettlementService from "./ThreadSettlementService.ts";
 
 import {
@@ -417,12 +418,15 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       getProjectShellsWithoutEnrichment: () =>
         Ref.get(snapshots).pipe(Effect.map((snapshot) => snapshot.projects)),
     }),
-    Layer.mock(OrchestratorV2)({
-      getShellSnapshot: () =>
+    Layer.mock(ProjectionStoreV2)({
+      getSettlementCandidates: () =>
         Ref.updateAndGet(snapshotReadCount, (count) => count + 1).pipe(
           Effect.tap((count) => Queue.offer(snapshotReads, count)),
           Effect.andThen(Ref.get(snapshots)),
+          Effect.map((snapshot) => snapshot.threads),
         ),
+    }),
+    Layer.mock(OrchestratorV2)({
       dispatch,
     }),
     Layer.mock(GitManager)({

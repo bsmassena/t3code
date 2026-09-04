@@ -63,6 +63,10 @@ no pending RPC response to send. Blocking questions still use the request/respon
 [runtime request service](../../apps/server/src/orchestration-v2/RuntimeRequestService.ts) records
 an async answer and its user message together.
 
+Codex initialization opts out of `turn/diff/updated`: T3 derives diffs from checkpoints and does
+not consume the provider's cumulative diff notifications. The logger also filters those
+notifications before traversal when an older provider still sends them.
+
 An async question can outlive the turn or a server restart. The engine reads that request's
 durable activity before resolving it because the in-memory command snapshot omits old activities.
 Do not infer that a request has disappeared merely because it is outside the recent window.

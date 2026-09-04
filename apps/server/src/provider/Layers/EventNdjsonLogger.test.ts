@@ -319,6 +319,22 @@ describe("EventNdjsonLogger", () => {
           { method: "thread/realtime/transcript/delta", payload: circularDelta },
           threadId,
         );
+        yield* native.write({ method: "turn/diff/updated", payload: circularDelta }, threadId);
+        yield* native.write(
+          {
+            event: {
+              direction: "incoming",
+              stage: "decoded",
+              payload: {
+                method: "turn/diff/updated",
+                get params() {
+                  throw new Error("unused diff snapshots must not be traversed");
+                },
+              },
+            },
+          },
+          threadId,
+        );
         yield* native.write(
           {
             event: {

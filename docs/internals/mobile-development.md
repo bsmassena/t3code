@@ -23,3 +23,14 @@ only when the generated stylesheet and theme list are unchanged. Skipping compil
 would lose new classes; invalidating every consumer for unchanged output makes an
 ordinary component edit refresh the whole app. The fingerprint is recorded only
 after initialization succeeds.
+
+The expo-notifications patch protects `NotificationCenterManager`'s delegate and pending-response
+arrays with a lock. React runtimes can register and remove delegates concurrently during reloads
+or native scene startup. Delivery takes a snapshot under the lock and invokes delegates after
+releasing it, allowing callbacks to register other delegates. Pending-response replay removes
+only the responses it saw so a response arriving during a callback remains available.
+
+Changes to this native patch require a fresh dependency install, CocoaPods refresh, and an iOS
+rebuild. `vp test run apps/mobile/scripts/notification-center-manager.test.ts` compiles the
+installed dependency with a small native harness on macOS and runs concurrent registration and
+delivery checks under ThreadSanitizer without launching a simulator.

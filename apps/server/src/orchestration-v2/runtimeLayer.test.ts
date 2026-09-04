@@ -1634,6 +1634,38 @@ it.layer(SharedApplicationDataPlaneTestLayer)("visited projection", (it) => {
         })
         .pipe(Effect.flip);
       assert.instanceOf(markUnread, OrchestratorDispatchError);
+
+      // A read receipt must not decode any transcript, including inherited or
+      // unreadable historical rows. It only advances the thread's watermark.
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO orchestration_v2_projection_turn_items (
+        turn_item_id, thread_id, ordinal, type, status, updated_at, payload_json
+      ) VALUES (
+        'item:visited:unreadable-history', ${threadId}, 1, 'dynamic_tool', 'completed',
+        ${visitedAt}, '{broken'
+      )`;
+      const nextVisitedAt = "2026-07-24T02:00:00.000Z";
+      yield* orchestrator.dispatch({
+        type: "thread.visit",
+        commandId: CommandId.make("runtime-layer-visited-without-history"),
+        threadId,
+        visitedAt: nextVisitedAt,
+      });
+      const [watermark] = yield* sql<{ readonly visited_at: string; readonly updated_at: string }>`
+        SELECT json_extract(payload_json, '$.lastVisitedAt') AS visited_at, updated_at
+        FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId}
+      `;
+      assert.equal(watermark!.visited_at, nextVisitedAt);
+      assert.equal(watermark!.updated_at, DateTime.formatIso(createdUpdatedAt));
+      const invalidVisit = yield* orchestrator
+        .dispatch({
+          type: "thread.visit",
+          commandId: CommandId.make("runtime-layer-visited-invalid-timestamp"),
+          threadId,
+          visitedAt: "invalid-timestamp",
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(invalidVisit, OrchestratorDispatchError);
     }),
   );
 });

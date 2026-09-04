@@ -1083,7 +1083,10 @@ function codexReplayPreamble(input: {
         method: "initialize",
         params: {
           clientInfo: { name: "t3code_desktop", title: "T3 Code Desktop", version: "0.1.0" },
-          capabilities: { experimentalApi: true },
+          capabilities: {
+            experimentalApi: true,
+            optOutNotificationMethods: ["turn/diff/updated"],
+          },
         },
       },
     },

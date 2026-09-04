@@ -50,3 +50,37 @@ it must not collect the entire event log before projecting it.
 
 The focused regression coverage lives in `OrchestrationEventStore.sequence.test.ts`,
 `ProjectionRecovery.test.ts`, and the provider runtime recovery tests under `apps/server/src`.
+
+## Background work and navigation
+
+The settlement worker reads active, unpinned threads without explicit settlement overrides from
+`ProjectionStore.getSettlementCandidates`. It reads the latest run and user-message timestamps,
+rejects active runs and pending requests, and checks background work using the same derivation as
+the shell. It does not load archived histories, fork ancestry, transcript counts, or provider
+sessions. The orchestrator still validates the current thread before applying settlement.
+
+Read receipts use `ProjectionStore.getThread` to load only canonical thread metadata. A visit
+advances `lastVisitedAt` monotonically without changing `updatedAt` or decoding history. Shell
+queries use a covering thread/run index for item counts and a partial index for nonterminal
+background items, including idle items. Latest user-message reads use an index ordered by update
+time.
+
+Command palette results keep live VCS and linked pull-request queries leased to the visible
+viewport, including a small overscan region. Cached badges remain available while leases are
+released. Local Git status reads skip divergence calculations; callers that need ahead/behind
+counts keep the full status path. Cached fetch failures share the existing backoff and log only
+the actual failed attempt. Unchanged desktop environment bootstrap reads retain their array
+identity so polling does not invalidate subscribers.
+
+Relay awareness queues one pending publication per thread and retains a follow-up when the thread
+changes during a send. Transcript deltas and tool output do not enqueue awareness work. Run,
+request, and relevant thread metadata events do. Configuration is checked before shell reads, and
+connection changes invalidate published identities so relinking can publish unchanged state.
+Failed publications retry the latest state up to five times with exponential delays. A new
+relevant event resets the budget; successful publication, disabling, or unlinking cancels retries.
+After the budget is exhausted, publication waits for another relevant event instead of generating
+continuous traffic during an outage.
+
+Focused coverage: `ProjectionSettlement.test.ts`, `ThreadSettlementService.test.ts`,
+`runtimeLayer.test.ts`, `AgentAwarenessRelay.test.ts`, `GitVcsDriverCore.test.ts`,
+`ThreadStatusIndicators.subscriptions.test.tsx`, and `desktopLocal.test.ts`.

@@ -216,6 +216,8 @@ it.effect(
           apply: () => Effect.void,
           getShellSnapshot: () => Effect.die("unused getShellSnapshot"),
           getThreadShell: () => Effect.die("unused getThreadShell"),
+          getThread: () => Ref.get(projection).pipe(Effect.map((state) => state.thread)),
+          getSettlementCandidates: () => Effect.die("unused getSettlementCandidates"),
           getThreadProjection: () => Ref.get(projection),
           getCheckpointContext: () => Effect.die("not used"),
           getRecoveryThreadIds: () => Effect.die("unused getRecoveryThreadIds"),
