@@ -8,12 +8,12 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("048_049_OrchestrationV2", (it) => {
+layer("041_042_OrchestrationV2", (it) => {
   it.effect("keeps released and private migration ids contiguous", () =>
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 58 }, (_, index) => index + 1),
+        Array.from({ length: 59 }, (_, index) => index + 1),
       );
     }),
   );
@@ -22,7 +22,7 @@ layer("048_049_OrchestrationV2", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 49 });
+      yield* runMigrations({ toMigrationInclusive: 42 });
 
       const migrations = yield* sql<{
         readonly migration_id: number;
@@ -30,24 +30,16 @@ layer("048_049_OrchestrationV2", (it) => {
       }>`
         SELECT migration_id, name
         FROM effect_sql_migrations
-        WHERE migration_id IN (46, 47, 48, 49)
+        WHERE migration_id IN (41, 42)
         ORDER BY migration_id
       `;
       assert.deepStrictEqual(migrations, [
         {
-          migration_id: 46,
-          name: "RepairAutomaticSettlementTimestamps",
-        },
-        {
-          migration_id: 47,
-          name: "ProjectionProjectIcon",
-        },
-        {
-          migration_id: 48,
+          migration_id: 41,
           name: "OrchestrationV2",
         },
         {
-          migration_id: 49,
+          migration_id: 42,
           name: "OrchestrationV2Subagents",
         },
       ]);
@@ -64,10 +56,10 @@ layer("048_049_OrchestrationV2", (it) => {
     }),
   );
 
-  it.effect("backfills provider-session thread bindings in migration 051", () =>
+  it.effect("backfills provider-session thread bindings in migration 044", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 50 });
+      yield* runMigrations({ toMigrationInclusive: 43 });
       yield* sql`
         INSERT INTO orchestration_v2_projection_provider_sessions (
           provider_session_id,
@@ -92,7 +84,7 @@ layer("048_049_OrchestrationV2", (it) => {
         )
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 51 });
+      yield* runMigrations({ toMigrationInclusive: 44 });
 
       const bindings = yield* sql<{
         readonly provider_session_id: string;
@@ -110,10 +102,10 @@ layer("048_049_OrchestrationV2", (it) => {
     }),
   );
 
-  it.effect("preserves turn items with colliding ordinals in migration 050", () =>
+  it.effect("preserves turn items with colliding ordinals in migration 043", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 49 });
+      yield* runMigrations({ toMigrationInclusive: 42 });
       yield* sql`
         INSERT INTO orchestration_v2_projection_runs (
           run_id,
@@ -150,7 +142,7 @@ layer("048_049_OrchestrationV2", (it) => {
           ('turn-item:d', 'thread:two', NULL, 42, 'assistant_message', 'completed', '2026-01-01T00:00:00.000Z', '{}')
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 50 });
+      yield* runMigrations({ toMigrationInclusive: 43 });
 
       const positions = yield* sql<{
         readonly thread_id: string;
@@ -171,18 +163,18 @@ layer("048_049_OrchestrationV2", (it) => {
   );
 });
 
-it.effect("upgrades a database already at released main migration 043", () =>
+it.effect("upgrades a database already at the deployed fork migration 053", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
 
-    yield* runMigrations({ toMigrationInclusive: 43 });
+    yield* runMigrations({ toMigrationInclusive: 53 });
     const snoozeColumns = yield* sql<{ readonly name: string }>`
       PRAGMA table_info(projection_threads)
     `;
     assert.ok(snoozeColumns.some((column) => column.name === "snoozed_until"));
     assert.ok(snoozeColumns.some((column) => column.name === "snoozed_at"));
 
-    yield* runMigrations({ toMigrationInclusive: 56 });
+    yield* runMigrations({ toMigrationInclusive: 59 });
 
     const migrations = yield* sql<{
       readonly migration_id: number;
@@ -190,7 +182,7 @@ it.effect("upgrades a database already at released main migration 043", () =>
     }>`
       SELECT migration_id, name
       FROM effect_sql_migrations
-      WHERE migration_id BETWEEN 39 AND 56
+      WHERE migration_id BETWEEN 39 AND 59
       ORDER BY migration_id
     `;
     assert.deepStrictEqual(
@@ -198,22 +190,25 @@ it.effect("upgrades a database already at released main migration 043", () =>
       [
         [39, "ProjectionProjectsDefaultThreadEnvMode"],
         [40, "ProjectionProjectFaviconPath"],
-        [41, "AuthSessionClientConnection"],
-        [42, "ProjectionThreadLinkedPullRequest"],
-        [43, "ProjectionThreadsUnsettledAt"],
-        [44, "ClearAutomaticProjectModelDefaults"],
-        [45, "ProjectionProjectsAutoPull"],
-        [46, "RepairAutomaticSettlementTimestamps"],
-        [47, "ProjectionProjectIcon"],
-        [48, "OrchestrationV2"],
-        [49, "OrchestrationV2Subagents"],
-        [50, "OrchestrationV2Foundation"],
-        [51, "OrchestrationV2ProviderSessionBindings"],
-        [52, "OrchestrationV2ThreadLaunchWorkflows"],
-        [53, "ApplicationEventSource"],
-        [54, "OrchestrationV2EffectCancellation"],
-        [55, "ScheduledTasks"],
-        [56, "LegacyV1ImportState"],
+        [41, "OrchestrationV2"],
+        [42, "OrchestrationV2Subagents"],
+        [43, "OrchestrationV2Foundation"],
+        [44, "OrchestrationV2ProviderSessionBindings"],
+        [45, "OrchestrationV2ThreadLaunchWorkflows"],
+        [46, "ApplicationEventSource"],
+        [47, "OrchestrationV2EffectCancellation"],
+        [48, "ScheduledTasks"],
+        [49, "LegacyV1ImportState"],
+        [50, "AuthSessionClientConnection"],
+        [51, "ProjectionThreadLinkedPullRequest"],
+        [52, "ProjectionThreadsUnsettledAt"],
+        [53, "ClearAutomaticProjectModelDefaults"],
+        [54, "ProjectionProjectsAutoPull"],
+        [55, "RepairAutomaticSettlementTimestamps"],
+        [56, "ProjectionProjectIcon"],
+        [57, "ApplicationEventSequenceIndexes"],
+        [58, "OrchestrationV2RecoveryIndexes"],
+        [59, "OrchestrationV2ShellIndexes"],
       ],
     );
 
