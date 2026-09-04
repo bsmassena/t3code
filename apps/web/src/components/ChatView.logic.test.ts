@@ -19,7 +19,7 @@ import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifa
 import * as DateTime from "effect/DateTime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import type { Thread } from "../types";
+import type { Thread, TurnDiffSummary } from "../types";
 import { makeThreadFixture } from "../test-fixtures";
 import {
   agentControlledBrowserCloseConfirmation,
@@ -52,6 +52,7 @@ import {
   reconcileRetainedMountedThreadIds,
   resolveDraftPromotionNavigationTarget,
   resolveEffectiveInteractionMode,
+  resolveProactiveTurnDiffAction,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   startNewThreadForProject,
@@ -1101,6 +1102,61 @@ describe("proactive panels", () => {
         turnCompleted: false,
       }),
     ).toBe(false);
+  });
+
+  it("opens completed diffs only when files changed", () => {
+    const changedCheckpoint = {
+      status: "ready",
+      files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],
+    } satisfies Pick<TurnDiffSummary, "status" | "files">;
+    const unchangedCheckpoint = {
+      status: "ready",
+      files: [],
+    } satisfies Pick<TurnDiffSummary, "status" | "files">;
+
+    expect(
+      resolveProactiveTurnDiffAction({
+        checkpoint: changedCheckpoint,
+        isGitRepo: true,
+        activeSurfaceKind: null,
+      }),
+    ).toBe("open");
+    expect(
+      resolveProactiveTurnDiffAction({
+        checkpoint: unchangedCheckpoint,
+        isGitRepo: true,
+        activeSurfaceKind: null,
+      }),
+    ).toBe("ignore");
+  });
+
+  it("waits for definitive repository state and preserves pull requests", () => {
+    const changedCheckpoint = {
+      status: "ready",
+      files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],
+    } satisfies Pick<TurnDiffSummary, "status" | "files">;
+
+    expect(
+      resolveProactiveTurnDiffAction({
+        checkpoint: undefined,
+        isGitRepo: true,
+        activeSurfaceKind: null,
+      }),
+    ).toBe("defer");
+    expect(
+      resolveProactiveTurnDiffAction({
+        checkpoint: changedCheckpoint,
+        isGitRepo: undefined,
+        activeSurfaceKind: null,
+      }),
+    ).toBe("defer");
+    expect(
+      resolveProactiveTurnDiffAction({
+        checkpoint: changedCheckpoint,
+        isGitRepo: true,
+        activeSurfaceKind: "pull-request",
+      }),
+    ).toBe("ignore");
   });
 });
 

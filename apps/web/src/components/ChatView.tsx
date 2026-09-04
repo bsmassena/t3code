@@ -370,6 +370,7 @@ import {
   shouldShowPlanFollowUpPrompt,
   shouldOpenProactivePullRequest,
   shouldOpenProactiveTurnDiff,
+  resolveProactiveTurnDiffAction,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldRenderPreviewMiniPlayer,
   getStartedThreadModelChangeBlockReason,
@@ -4261,17 +4262,21 @@ export default function ChatView(props: ChatViewProps) {
       settings.proactivePanelsEnabled &&
       !shouldUsePlanSidebarSheet &&
       newlyCompletedTurnId !== null;
-    const checkpointReady =
-      eligibleCompletion &&
-      turnDiffSummaries.some((checkpoint) => checkpoint.runId === newlyCompletedTurnId) === true;
-    const shouldOpenTurn = checkpointReady && gitStatusQuery.data?.isRepo === true;
-    const shouldDeferCompletion =
-      eligibleCompletion && !shouldOpenTurn && gitStatusQuery.data?.isRepo !== false;
+    const completedCheckpoint = eligibleCompletion
+      ? turnDiffSummaries.find((checkpoint) => checkpoint.runId === newlyCompletedTurnId)
+      : undefined;
+    const diffAction = eligibleCompletion
+      ? resolveProactiveTurnDiffAction({
+          checkpoint: completedCheckpoint,
+          isGitRepo: gitStatusQuery.data?.isRepo,
+          activeSurfaceKind: activeRightPanelSurface?.kind ?? null,
+        })
+      : "ignore";
     proactiveTurnObservationRef.current = {
       threadKey: activeThreadKey,
-      runningTurnId: shouldDeferCompletion ? (previousRunningTurnId ?? null) : activeRunningTurnId,
+      runningTurnId: diffAction === "defer" ? (previousRunningTurnId ?? null) : activeRunningTurnId,
     };
-    if (!shouldOpenTurn || newlyCompletedTurnId === null) return;
+    if (diffAction !== "open" || newlyCompletedTurnId === null) return;
 
     useDiffPanelStore.getState().selectTurn(activeThreadRef, newlyCompletedTurnId);
     useRightPanelStore.getState().open(activeThreadRef, "diff");
@@ -4281,6 +4286,7 @@ export default function ChatView(props: ChatViewProps) {
     activeLatestRun?.runId,
     activeLatestRun?.status,
     activeRunningTurnId,
+    activeRightPanelSurface?.kind,
     activeThreadKey,
     activeThreadRef,
     clientSettingsHydrated,
