@@ -23,6 +23,8 @@ import {
   findLatestProposedPlan,
   isLatestRunSettled,
   providerErrorPresentation,
+  createMessageAttachmentPreviewProjector,
+  selectMessageImageResources,
   type TimelineEntry,
   workEntryIndicatesToolFailure,
   workEntryDisplayIndicatesToolFailure,
@@ -196,12 +198,14 @@ describe("V2 session presentation", () => {
         updatedAt: "2026-06-20T00:00:02.000Z",
       },
     ];
-    const timelineEntries: TimelineEntry[] = messages.map((message): TimelineEntry => ({
-      id: message.id,
-      kind: "message",
-      createdAt: message.createdAt,
-      message,
-    }));
+    const timelineEntries: TimelineEntry[] = messages.map(
+      (message): TimelineEntry => ({
+        id: message.id,
+        kind: "message",
+        createdAt: message.createdAt,
+        message,
+      }),
+    );
 
     const targets = deriveRevertTurnCountByUserMessageId({
       timelineEntries,
@@ -800,6 +804,65 @@ describe("V2 session presentation", () => {
     expect(next.entries).toEqual(deriveTimelineEntriesFromVisibleTurnItems(nextInput));
     expect(next.entries.at(-1)?.attempt?.status).toBe("superseded");
     expect(previous.entries.at(-1)?.attempt?.status).toBe("running");
+  });
+});
+
+describe("image asset requests", () => {
+  const image = {
+    type: "image" as const,
+    id: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    sizeBytes: 42,
+  };
+  const message: ChatMessage = {
+    id: MessageId.make("image-message"),
+    role: "user",
+    text: "Inspect these images",
+    runId: null,
+    createdAt: "2026-09-04T00:00:00.000Z",
+    updatedAt: "2026-09-04T00:00:00.000Z",
+    streaming: false,
+    attachments: [image],
+  };
+
+  it("requests a mounted row's gallery without signing local preview IDs", () => {
+    const attachments = Object.freeze([
+      image,
+      { ...image, id: "second" },
+      { ...image, id: "local", previewUrl: "blob:local" },
+      { ...image, id: "inline", previewUrl: "data:image/png;base64,AA==" },
+      { ...image, id: "provided", previewUrl: "https://preview.test/image" },
+      { ...image, type: "file" as const, id: "file", mimeType: "application/pdf" },
+      image,
+    ]);
+
+    expect(selectMessageImageResources(attachments)).toEqual([
+      { _tag: "attachment", attachmentId: "image" },
+      { _tag: "attachment", attachmentId: "second" },
+      { _tag: "attachment", attachmentId: "provided" },
+    ]);
+  });
+
+  it("does not inspect attachments when a row has no images", () => {
+    const empty = selectMessageImageResources(undefined);
+    expect(empty).toHaveLength(0);
+    expect(selectMessageImageResources([])).toBe(empty);
+  });
+
+  it("hands signed URLs to a mounted row after its local preview is released", () => {
+    const server = createMessageAttachmentPreviewProjector();
+    const pending = server(message, () => "blob:pending");
+    expect(selectMessageImageResources(pending.attachments)).toEqual([]);
+
+    const released = server(message, () => undefined);
+    expect(released).toBe(message);
+    expect(selectMessageImageResources(released.attachments)).toEqual([
+      { _tag: "attachment", attachmentId: image.id },
+    ]);
+    expect(server(message, () => "https://server.test/image").attachments?.[0]).toMatchObject({
+      previewUrl: "https://server.test/image",
+    });
   });
 });
 

@@ -112,6 +112,7 @@ import {
   findLatestProposedPlan,
   hasActionableProposedPlan,
   isLatestRunSettled,
+  selectHandoffImageResources,
 } from "../session-logic";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
@@ -453,7 +454,6 @@ const EMPTY_FEEDBACK_SUBMISSIONS: ReadonlyArray<CodexFeedbackSubmission> = [];
 // watermark per interval is plenty.
 const VISIT_DISPATCH_THROTTLE_MS = 10_000;
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
-const EMPTY_ATTACHMENT_IDS: string[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
 function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
@@ -2921,16 +2921,6 @@ export default function ChatView(props: ChatViewProps) {
       return next;
     });
   }, []);
-  const committedServerAttachmentIds = useMemo(() => {
-    const attachmentIds = new Set<string>();
-    for (const row of serverVisibleTurnItems) {
-      if (row.item.type !== "user_message") continue;
-      for (const attachment of row.item.attachments) {
-        attachmentIds.add(attachment.id);
-      }
-    }
-    return [...attachmentIds];
-  }, [serverVisibleTurnItems]);
   const downloadFileAttachment = useCallback(
     async (attachment: ChatFileAttachment) => {
       const connection = readPreparedConnection(environmentId);
@@ -2970,25 +2960,24 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, downloadFileAttachment],
   );
-  const serverAttachmentIds = isServerThread ? committedServerAttachmentIds : EMPTY_ATTACHMENT_IDS;
   const serverAttachmentResources = useMemo(
     () =>
-      serverAttachmentIds.map((attachmentId) => ({
-        _tag: "attachment" as const,
-        attachmentId,
-      })),
-    [serverAttachmentIds],
+      selectHandoffImageResources(
+        isServerThread ? serverVisibleTurnItems : undefined,
+        attachmentPreviewHandoffByMessageId,
+      ),
+    [attachmentPreviewHandoffByMessageId, isServerThread, serverVisibleTurnItems],
   );
   const serverAttachmentUrls = useAssetUrls(environmentId, serverAttachmentResources);
   const serverAttachmentUrlById = useMemo(
     () =>
       new Map(
-        serverAttachmentIds.flatMap((attachmentId, index) => {
+        serverAttachmentResources.flatMap((resource, index) => {
           const url = serverAttachmentUrls[index];
-          return url ? [[attachmentId, url] as const] : [];
+          return url ? [[resource.attachmentId, url] as const] : [];
         }),
       ),
-    [serverAttachmentIds, serverAttachmentUrls],
+    [serverAttachmentResources, serverAttachmentUrls],
   );
   useEffect(() => {
     if (typeof Image === "undefined" || serverVisibleTurnItems.length === 0) {
