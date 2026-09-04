@@ -106,6 +106,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
         </span>
       </SelectTrigger>
       <SelectPopup
+        alignItemWithTrigger={false}
         {...(displayMode === "toolbar" ? composerFloatingLayerProps : {})}
         {...(displayMode === "panel"
           ? {
