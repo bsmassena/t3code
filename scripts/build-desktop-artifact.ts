@@ -2091,6 +2091,9 @@ const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBundleIsSel
       });
     }
 
+    const probeEnv = { ...process.env };
+    delete probeEnv.ELECTRON_RUN_AS_NODE;
+
     // --version exercises the eagerly loaded module graph, which is where a
     // missing dependency shows up, without starting a server or touching disk
     // state. It does not cover lazily imported externals: node-pty is checked
@@ -2112,7 +2115,7 @@ const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBundleIsSel
           // NODE_PATH would let a createRequire call inside the bundle resolve
           // a missing external from outside the packaged tree, which is the
           // whole thing this is trying to rule out.
-          env: { ...process.env, NODE_PATH: "" },
+          env: { ...probeEnv, NODE_PATH: "" },
         },
       ),
       {
