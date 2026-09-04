@@ -37,6 +37,7 @@ import {
   searchSidebarThreadsByTitle,
   shouldClearThreadSelectionOnMouseDown,
   shouldNavigateAfterProjectRemoval,
+  shouldRecedeSidebarThread,
   shouldShowSidebarV2Duration,
   sortLogicalProjectsForSidebar,
   sortPinnedThreadsForSidebar,
@@ -419,6 +420,51 @@ describe("hasUnseenCompletion", () => {
         runtime: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldRecedeSidebarThread", () => {
+  it.each(["working", "waiting"] as const)(
+    "recedes an inactive %s thread even when it is unread and woke",
+    (status) => {
+      expect(
+        shouldRecedeSidebarThread({
+          status,
+          isUnread: true,
+          isWoke: true,
+          isActive: false,
+          isSelected: false,
+        }),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["ready", "approval", "input"] as const)(
+    "keeps an unread %s thread prominent",
+    (status) => {
+      expect(
+        shouldRecedeSidebarThread({
+          status,
+          isUnread: true,
+          isWoke: false,
+          isActive: false,
+          isSelected: false,
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it("keeps active and selected working threads prominent", () => {
+    const input = {
+      status: "working" as const,
+      isUnread: true,
+      isWoke: true,
+      isActive: false,
+      isSelected: false,
+    };
+
+    expect(shouldRecedeSidebarThread({ ...input, isActive: true })).toBe(false);
+    expect(shouldRecedeSidebarThread({ ...input, isSelected: true })).toBe(false);
   });
 });
 

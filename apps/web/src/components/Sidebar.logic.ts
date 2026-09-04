@@ -580,6 +580,21 @@ export function resolveThreadRowClassName(input: {
 // thread needs attention, not what the thread is currently doing.
 export type SidebarThreadStatus = "approval" | "input" | "working" | "waiting" | "failed" | "ready";
 
+export function shouldRecedeSidebarThread(input: {
+  status: SidebarThreadStatus;
+  isUnread: boolean;
+  isWoke: boolean;
+  isActive: boolean;
+  isSelected: boolean;
+}): boolean {
+  if (input.isActive || input.isSelected) return false;
+  if (input.status === "working" || input.status === "waiting") return true;
+  if (input.status === "ready" || input.status === "approval" || input.status === "input") {
+    return !input.isUnread && !input.isWoke;
+  }
+  return false;
+}
+
 type SidebarThreadStatusInput = Pick<
   SidebarThreadSummary,
   "hasPendingApprovals" | "hasPendingUserInput" | "runtime"
