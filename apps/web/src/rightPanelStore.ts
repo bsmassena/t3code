@@ -93,6 +93,8 @@ export interface ThreadPanelVisibility {
 }
 
 interface RightPanelStoreState {
+  maximized: boolean;
+  toggleMaximized: () => void;
   byThreadKey: Record<string, ThreadRightPanelState>;
   threadPanelVisibilityByThreadKey: Record<string, ThreadPanelVisibility>;
   open: (
@@ -451,6 +453,8 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
 export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set) => ({
+      maximized: false,
+      toggleMaximized: () => set((state) => ({ maximized: !state.maximized })),
       byThreadKey: {},
       threadPanelVisibilityByThreadKey: {},
       open: (ref, kind) =>
@@ -789,6 +793,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       partialize: (state) => ({
+        maximized: state.maximized,
         byThreadKey: Object.fromEntries(
           Object.entries(state.byThreadKey).filter(
             ([threadKey]) => !isPullRequestsPanelKey(threadKey),

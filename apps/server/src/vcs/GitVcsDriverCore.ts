@@ -2776,12 +2776,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       { maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES },
     );
     const changedPaths = new Set<string>();
+    const untrackedPaths = new Set<string>();
     const statusRecords = statusResult.stdout.split("\0");
     for (let index = 0; index < statusRecords.length; index += 1) {
       const record = statusRecords[index];
       if (!record || record.length < 4) continue;
       const status = new Set(record.slice(0, 2));
       changedPaths.add(record.slice(3));
+      if (record.startsWith("?? ")) untrackedPaths.add(record.slice(3));
       if (status.has("R") || status.has("C")) {
         const previousPath = statusRecords[index + 1];
         if (previousPath) changedPaths.add(previousPath);
@@ -2813,7 +2815,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
                 "--",
                 ...filePaths,
               ]
-            : ["--literal-pathspecs", "restore", "--worktree", "--", ...filePaths];
+            : filePaths.length === 1 && untrackedPaths.has(filePaths[0]!)
+              ? ["--literal-pathspecs", "clean", "-f", "--", ...filePaths]
+              : ["--literal-pathspecs", "restore", "--worktree", "--", ...filePaths];
     yield* executeGit(`GitVcsDriver.runReviewDiffFileAction.${input.action}`, repositoryRoot, args);
   });
 

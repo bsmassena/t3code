@@ -84,7 +84,12 @@ import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
 import { createGitDiffFileContentsLoader } from "../lib/diffFileContents";
-import { resolveDiffFileActions } from "../lib/diffReviewActions";
+import {
+  resolveDiffFileActions,
+  recordCompletedDiffFileAction,
+  getCompletedDiffFiles,
+  needsDiffActionRefresh,
+} from "../lib/diffReviewActions";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import { DiffFileNavigator } from "./diffs/DiffFileNavigator";
 import { toastManager } from "./ui/toast";
@@ -98,7 +103,7 @@ const DIFF_PANEL_HEADER_UNSAFE_CSS = `
 [data-diffs-header] {
   cursor: pointer;
   justify-content: flex-start !important;
-  gap: 1ch !important;
+  gap: 8px !important;
   border-top: 0 !important;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent) !important;
   background: var(--background) !important;
@@ -117,8 +122,11 @@ const DIFF_PANEL_HEADER_UNSAFE_CSS = `
   display: contents !important;
 }
 
-[data-diffs-header] slot[name="header-prefix"]::slotted(*) {
+[data-diffs-header] slot[name="header-prefix"] {
+  display: flex;
+  flex-shrink: 0;
   order: 0;
+  margin-inline-end: -6px;
 }
 
 [data-diffs-header] [data-change-icon] {
@@ -500,6 +508,21 @@ export default function DiffPanel({
   );
   const commitDiff = shouldRetryCommitDiffAtEnvironmentCwd ? fallbackCommitDiff : primaryCommitDiff;
   const refreshBranchDiffPreview = branchDiffPreview.refresh;
+  const [fileActionVersion, setFileActionVersion] = useState(0);
+  const latestBranchPreview = useRef(branchDiffPreview.data);
+  latestBranchPreview.current = branchDiffPreview.data;
+  const refreshGitStatus = gitStatusQuery.refresh;
+  useEffect(() => {
+    if (isGitScopeSelected && needsDiffActionRefresh(branchDiffPreview.data, selectedGitScope)) {
+      refreshBranchDiffPreview();
+    }
+  }, [
+    branchDiffPreview.data,
+    isGitScopeSelected,
+    selectedGitScope,
+    refreshBranchDiffPreview,
+    fileActionVersion,
+  ]);
   const refreshCommitDiff = commitDiff.refresh;
   const refreshCommitList = commitList.refresh;
   const refreshSelectedGitDiff = useCallback(() => {
@@ -661,7 +684,6 @@ export default function DiffPanel({
       ? commitDiff.error
       : branchDiffPreview.error;
   const hasResolvedPatch = typeof selectedPatch === "string";
-  const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   const renderablePatch = useMemo(
     () =>
       getRenderablePatch(selectedPatch, `diff-panel:${diffThemeName}`, {
@@ -673,13 +695,30 @@ export default function DiffPanel({
     if (!renderablePatch || renderablePatch.kind !== "files") {
       return [];
     }
-    return renderablePatch.files.toSorted((left, right) =>
-      resolveFileDiffPath(left).localeCompare(resolveFileDiffPath(right), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      }),
-    );
-  }, [renderablePatch]);
+    const reverted =
+      selectedRunId === null && selectedCommitSha === null
+        ? getCompletedDiffFiles(branchDiffPreview.data, selectedGitScope)
+        : undefined;
+    return renderablePatch.files
+      .filter((file) => !reverted?.has(resolveFileDiffPath(file)))
+      .toSorted((left, right) =>
+        resolveFileDiffPath(left).localeCompare(resolveFileDiffPath(right), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      );
+  }, [
+    renderablePatch,
+    branchDiffPreview.data,
+    selectedGitScope,
+    selectedRunId,
+    selectedCommitSha,
+    fileActionVersion,
+  ]);
+  const hasNoNetChanges =
+    hasResolvedPatch &&
+    (selectedPatch.trim().length === 0 ||
+      (renderablePatch?.kind === "files" && renderableFiles.length === 0));
   const renderableFileEntries = useMemo(
     () =>
       renderableFiles.map((fileDiff) => ({
@@ -842,7 +881,10 @@ export default function DiffPanel({
         });
         return;
       }
-      refreshBranchDiffPreview();
+      recordCompletedDiffFileAction(branchDiffPreview.data, action, filePath, previousFilePath);
+      setFileActionVersion((version) => version + 1);
+      refreshGitStatus();
+      if (latestBranchPreview.current !== branchDiffPreview.data) refreshBranchDiffPreview();
     },
     [
       activeThread,
@@ -850,6 +892,7 @@ export default function DiffPanel({
       pendingFileActionKey,
       refreshBranchDiffPreview,
       runDiffFileAction,
+      refreshGitStatus,
     ],
   );
 
@@ -1323,7 +1366,7 @@ export default function DiffPanel({
                 <p className="mb-2 text-[11px] text-error/80">{selectedPatchError}</p>
               </div>
             )}
-            {!renderablePatch ? (
+            {!renderablePatch || hasNoNetChanges ? (
               isLoadingSelectedPatch ? (
                 <DiffPanelLoadingState
                   label={
@@ -1391,6 +1434,33 @@ export default function DiffPanel({
                       const filePath = resolveFileDiffPath(fileDiff);
                       const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
                       if (!uiStateKey) return null;
+                      const fileStatus = {
+                        new: {
+                          letter: "U",
+                          label: "New file",
+                          color: "text-emerald-600 dark:text-emerald-400",
+                        },
+                        deleted: {
+                          letter: "D",
+                          label: "Deleted",
+                          color: "text-red-600 dark:text-red-400",
+                        },
+                        change: {
+                          letter: "M",
+                          label: "Modified",
+                          color: "text-amber-600 dark:text-amber-400",
+                        },
+                        "rename-pure": {
+                          letter: "R",
+                          label: "Renamed",
+                          color: "text-emerald-600 dark:text-emerald-400",
+                        },
+                        "rename-changed": {
+                          letter: "R",
+                          label: "Renamed and modified",
+                          color: "text-emerald-600 dark:text-emerald-400",
+                        },
+                      }[fileDiff.type];
                       return (
                         <div className="flex items-center gap-1">
                           <Tooltip>
@@ -1421,6 +1491,22 @@ export default function DiffPanel({
                             <TooltipPopup side="top">
                               {collapsed ? "Expand diff" : "Collapse diff"}
                             </TooltipPopup>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <span
+                                  className={cn(
+                                    "me-1 shrink-0 font-mono text-xs font-medium",
+                                    fileStatus.color,
+                                  )}
+                                  aria-label={fileStatus.label}
+                                />
+                              }
+                            >
+                              {fileStatus.letter}
+                            </TooltipTrigger>
+                            <TooltipPopup side="top">{fileStatus.label}</TooltipPopup>
                           </Tooltip>
                           <PierreEntryIcon
                             pathValue={filePath}

@@ -1014,6 +1014,35 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("reverts only the selected untracked file using a literal path", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* writeTextFile(cwd, "new [1].ts", "selected\n");
+        yield* writeTextFile(cwd, "new 1.ts", "keep\n");
+        yield* writeTextFile(cwd, "README.md", "staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "unstaged\n");
+
+        yield* driver.runReviewDiffFileAction({
+          cwd,
+          filePath: "new [1].ts",
+          action: "revert",
+        });
+
+        assert.isFalse(yield* fileSystem.exists(path.join(cwd, "new [1].ts")));
+        assert.strictEqual(yield* fileSystem.readFileString(path.join(cwd, "new 1.ts")), "keep\n");
+        assert.strictEqual(yield* git(cwd, ["show", ":README.md"]), "staged");
+        assert.strictEqual(
+          yield* fileSystem.readFileString(path.join(cwd, "README.md")),
+          "unstaged\n",
+        );
+      }),
+    );
+
     it.effect("unstages a file before the repository has its first commit", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

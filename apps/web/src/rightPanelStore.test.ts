@@ -18,10 +18,37 @@ const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"))
 const refB = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B"));
 
 beforeEach(() => {
-  useRightPanelStore.setState({ byThreadKey: {}, threadPanelVisibilityByThreadKey: {} });
+  useRightPanelStore.setState({
+    maximized: false,
+    byThreadKey: {},
+    threadPanelVisibilityByThreadKey: {},
+  });
 });
 
 describe("rightPanelStore", () => {
+  it("keeps maximization across threads, closing, and rehydration until restored", async () => {
+    const store = useRightPanelStore;
+    store.getState().open(refA, "diff");
+    store.getState().toggleMaximized();
+    store.getState().open(refB, "diff");
+    store.getState().close(refB);
+    store.getState().show(refA);
+    expect(store.getState().maximized).toBe(true);
+
+    const { name, storage } = store.persist.getOptions();
+    if (!name) throw new Error("Expected right panel storage name");
+    const persisted = await storage?.getItem(name);
+    expect(persisted?.state).toMatchObject({ maximized: true });
+    store.setState({ maximized: false });
+    if (persisted) await storage?.setItem(name, persisted);
+    await store.persist.rehydrate();
+    expect(store.getState().maximized).toBe(true);
+
+    store.getState().toggleMaximized();
+    expect(store.getState().maximized).toBe(false);
+    expect((await storage?.getItem(name))?.state).toMatchObject({ maximized: false });
+  });
+
   it("drops the legacy singleton terminal surface during migration", () => {
     expect(
       migratePersistedRightPanelState({
