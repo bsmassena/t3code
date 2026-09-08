@@ -1,5 +1,17 @@
+diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
+index dfabd4963697284d5ea70812bca010efa5cce9b3..f77f86f9cc4ece54cf00ea71316e9b3e536be0ca 100644
+--- a/dist/components/CodeView.js
++++ b/dist/components/CodeView.js
+@@ -1630,6 +1630,7 @@ var CodeView = class CodeView {
+ 		if (heightChanged && currentTop != null) {
+ 			this.scrollDirty = true;
+ 			this.scrollHeight = currentTop;
++			this.syncContainerHeight();
+ 		}
+ 	}
+ 	updateStickyPositioning() {
 diff --git a/dist/editor/editor.js b/dist/editor/editor.js
-index ff78e2a..f9df318 100644
+index ff78e2ae0e20aa83124f758d193e978170c98a87..a5c6ff73d739276bcc365e3af138b50980ff7dff 100644
 --- a/dist/editor/editor.js
 +++ b/dist/editor/editor.js
 @@ -146,14 +146,11 @@ var Editor = class {
@@ -45,7 +57,7 @@ index ff78e2a..f9df318 100644
  			this.#fileInstance?.setSelectedLines(range, {
  				notify: false,
 diff --git a/dist/react/utils/useFileInstance.js b/dist/react/utils/useFileInstance.js
-index e9f62f5..af82a46 100644
+index e9f62f56eed9b634b613d2955647224e5af2b8a2..a33006b0fc00db4b68f1c6cb4c7cdfeac886ad24 100644
 --- a/dist/react/utils/useFileInstance.js
 +++ b/dist/react/utils/useFileInstance.js
 @@ -91,10 +91,7 @@ function mergeFileOptions({ options, controlledSelection, contentEditable, hasCu
@@ -61,7 +73,7 @@ index e9f62f5..af82a46 100644
  	return merged;
  }
 diff --git a/package.json b/package.json
-index ff61c90..1e170e5 100644
+index ff61c904594e4ea4bf101c620ec4b500133014e3..213b06a8161996dd921cbcff164a27aebeedcd8a 100644
 --- a/package.json
 +++ b/package.json
 @@ -55,6 +55,18 @@
