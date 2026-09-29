@@ -5,12 +5,26 @@ import {
   buildFileDiffContentVersion,
   buildFileDiffIdentityKey,
   buildFileDiffRenderKey,
+  buildFileDiffUiStateKey,
   buildPatchCacheKey,
   getDiffLineStat,
   getRenderablePatch,
   resolveFileDiffPath,
   resolveFileDiffPreviousPath,
+  resolveDiffThemeName,
 } from "./diffRendering";
+
+describe("resolveDiffThemeName", () => {
+  it("keeps the T3 Code palette as the default", () => {
+    expect(resolveDiffThemeName("light")).toBe("pierre-light");
+    expect(resolveDiffThemeName("dark")).toBe("pierre-dark");
+  });
+
+  it("selects the matching VS Code palette for each appearance", () => {
+    expect(resolveDiffThemeName("light", "vs-code")).toBe("light-plus");
+    expect(resolveDiffThemeName("dark", "vs-code")).toBe("dark-plus");
+  });
+});
 
 describe("buildPatchCacheKey", () => {
   it("normalizes outer whitespace before hashing", () => {
@@ -335,6 +349,85 @@ describe("diff file reconciliation", () => {
     expect(buildFileDiffContentVersion(afterChanged)).not.toBe(
       buildFileDiffContentVersion(beforeChanged),
     );
+  });
+});
+
+describe("buildFileDiffUiStateKey", () => {
+  const patch = (otherFileValue: string, exampleFileValue = "after") =>
+    [
+      "diff --git a/example.ts b/example.ts",
+      "--- a/example.ts",
+      "+++ b/example.ts",
+      "@@ -1 +1 @@",
+      "-before",
+      `+${exampleFileValue}`,
+      "diff --git a/other.ts b/other.ts",
+      "--- a/other.ts",
+      "+++ b/other.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      `+${otherFileValue}`,
+    ].join("\n");
+
+  const files = (value: string, exampleFileValue?: string) => {
+    const parsed = getRenderablePatch(patch(value, exampleFileValue), "diff-panel:dark");
+    expect(parsed?.kind).toBe("files");
+    return parsed?.kind === "files" ? parsed.files : [];
+  };
+
+  it("keeps an unchanged file viewed when another file changes", () => {
+    const before = files("first")[0];
+    const after = files("second")[0];
+
+    expect(before).toBeDefined();
+    expect(after).toBeDefined();
+    expect(buildFileDiffUiStateKey(before!)).toBe(buildFileDiffUiStateKey(after!));
+  });
+
+  it("changes when that file's own diff changes", () => {
+    const before = files("first", "after")[0];
+    const after = files("first", "changed again")[0];
+
+    expect(before).toBeDefined();
+    expect(after).toBeDefined();
+    expect(buildFileDiffUiStateKey(before!)).not.toBe(buildFileDiffUiStateKey(after!));
+  });
+
+  it("does not depend on Pierre's global or hydrated cache key", () => {
+    const file = files("first")[0];
+    expect(file).toBeDefined();
+    if (!file) return;
+    const key = buildFileDiffUiStateKey(file);
+    file.cacheKey = "different-theme-and-patch-key:hydrated";
+
+    expect(buildFileDiffUiStateKey(file)).toBe(key);
+  });
+
+  it("stays stable when Pierre hydrates the diff with full file contents", () => {
+    const parsed = getRenderablePatch(
+      [
+        "diff --git a/example.ts b/example.ts",
+        "--- a/example.ts",
+        "+++ b/example.ts",
+        "@@ -3 +3 @@",
+        "-before",
+        "+after",
+      ].join("\n"),
+      "diff-panel:dark",
+    );
+    expect(parsed?.kind).toBe("files");
+    if (parsed?.kind !== "files") return;
+    const file = parsed.files[0];
+    expect(file).toBeDefined();
+    if (!file) return;
+    const key = buildFileDiffUiStateKey(file);
+
+    hydratePartialDiff("merge", file, {
+      oldFile: { name: "example.ts", contents: "one\ntwo\nbefore\nfour\n" },
+      newFile: { name: "example.ts", contents: "one\ntwo\nafter\nfour\n" },
+    });
+
+    expect(buildFileDiffUiStateKey(file)).toBe(key);
   });
 });
 

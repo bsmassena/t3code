@@ -1,3 +1,4 @@
+import { classifyCodexManagedError } from "../../provider/CodexManagedErrors.ts";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
 import { historyResponseItems } from "../ContextHandoffBudget.ts";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
@@ -117,7 +118,7 @@ import {
 } from "../ProviderContinuationRequests.ts";
 import { backgroundWorkNotification } from "../Notification.ts";
 import {
-  makeProviderFailure,
+  makeProviderFailure as makeNativeProviderFailure,
   makeProviderFailureTurnItem,
   makeProviderRetryTurnItem,
 } from "../ProviderFailure.ts";
@@ -1539,6 +1540,25 @@ export interface CodexAdapterV2Options {
 export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): ProviderAdapterV2Shape {
   const { clientFactory, fileSystem, idAllocator, serverConfig } = adapterOptions;
   const continuationRequests = adapterOptions.continuationRequests;
+  const makeProviderFailure: typeof makeNativeProviderFailure = (input) => {
+    const managed =
+      adapterOptions.settings.setupMode === "managed"
+        ? classifyCodexManagedError(input)
+        : undefined;
+    return makeNativeProviderFailure(
+      managed
+        ? {
+            ...input,
+            code: managed.code,
+            message: managed.message,
+            class:
+              managed.code === "subscription_sharing_usage_limit_exceeded"
+                ? "usage_limit"
+                : "provider_error",
+          }
+        : input,
+    );
+  };
 
   return ProviderAdapterV2.of({
     instanceId: adapterOptions.instanceId,

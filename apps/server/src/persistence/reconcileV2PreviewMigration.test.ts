@@ -28,6 +28,52 @@ const seedPreview = Effect.gen(function* () {
 });
 
 describe("V2 preview upgrade", () => {
+  it.effect("upgrades the custom fork ledger without replaying V2 or losing data", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 47 });
+      yield* Migrator.make({})({
+        loader: Migrator.fromRecord({ "55_OrchestrationV2": OrchestrationV2 }),
+      });
+      yield* sql`INSERT INTO orchestration_v2_legacy_imports
+        (thread_id, source_updated_at, shell_imported_at, transcript_imported_at, imported_message_count)
+        VALUES ('fork-thread', '2026-09-04', '2026-09-04', '2026-09-04', 42)`;
+      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 55`;
+      // Offset first so the old 50-56 range cannot collide with the canonical 41-47.
+      yield* sql`UPDATE effect_sql_migrations SET migration_id = migration_id + 100 WHERE migration_id >= 41`;
+      yield* sql`UPDATE effect_sql_migrations SET migration_id = migration_id - 91 WHERE migration_id >= 141`;
+      const steps = [
+        [41, "OrchestrationV2"],
+        [42, "OrchestrationV2Subagents"],
+        [43, "OrchestrationV2Foundation"],
+        [44, "OrchestrationV2ProviderSessionBindings"],
+        [45, "OrchestrationV2ThreadLaunchWorkflows"],
+        [46, "ApplicationEventSource"],
+        [47, "OrchestrationV2EffectCancellation"],
+        [48, "ScheduledTasks"],
+        [49, "LegacyV1ImportState"],
+        [57, "ApplicationEventSequenceIndexes"],
+        [58, "OrchestrationV2RecoveryIndexes"],
+        [59, "OrchestrationV2ShellIndexes"],
+      ] as const;
+      for (const [id, name] of steps)
+        yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
+      const before = yield* sql`SELECT * FROM orchestration_v2_legacy_imports`;
+      yield* runMigrations();
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, before);
+      const history = yield* sql<{
+        readonly migration_id: number;
+        readonly name: string;
+      }>`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id`;
+      assert.deepStrictEqual(
+        history.map((row) => [row.migration_id, row.name] as const),
+        migrationManifest,
+      );
+      assert.strictEqual((yield* sql`SELECT * FROM t3_fork_migration_history`).length, 59);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("upgrades a published preview without replaying V2 or losing import progress", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

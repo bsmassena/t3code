@@ -3281,10 +3281,24 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.reviewGetDiffPreview, review.getDiffPreview(input), {
             "rpc.aggregate": "review",
           }),
+        [WS_METHODS.reviewListCommits]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewListCommits, review.listCommits(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewGetCommitDiff]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewGetCommitDiff, review.getCommitDiff(input), {
+            "rpc.aggregate": "review",
+          }),
         [WS_METHODS.reviewGetDiffFileContents]: (input) =>
           observeRpcEffect(
             WS_METHODS.reviewGetDiffFileContents,
             review.getDiffFileContents(input),
+            { "rpc.aggregate": "review" },
+          ),
+        [WS_METHODS.reviewRunDiffFileAction]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.reviewRunDiffFileAction,
+            review.runDiffFileAction(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "review" },
           ),
         [WS_METHODS.terminalOpen]: (input) =>

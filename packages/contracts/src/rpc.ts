@@ -124,8 +124,13 @@ import {
   VcsStatusStreamEvent,
 } from "./git.ts";
 import {
+  ReviewCommitDiffInput,
+  ReviewCommitDiffResult,
+  ReviewCommitListInput,
+  ReviewCommitListResult,
   ReviewDiffFileContentsInput,
   ReviewDiffFileContentsResult,
+  ReviewDiffFileActionInput,
   ReviewDiffPreviewError,
   ReviewDiffPreviewInput,
   ReviewDiffPreviewResult,
@@ -390,8 +395,11 @@ export const WS_METHODS = {
   gitPreparePullRequestThread: "git.preparePullRequestThread",
 
   // Review methods
+  reviewListCommits: "review.listCommits",
+  reviewGetCommitDiff: "review.getCommitDiff",
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
+  reviewRunDiffFileAction: "review.runDiffFileAction",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -1302,9 +1310,26 @@ const WsReviewGetDiffPreviewRpc = Rpc.make(WS_METHODS.reviewGetDiffPreview, {
   error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
 });
 
+const WsReviewListCommitsRpc = Rpc.make(WS_METHODS.reviewListCommits, {
+  payload: ReviewCommitListInput,
+  success: ReviewCommitListResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
+const WsReviewGetCommitDiffRpc = Rpc.make(WS_METHODS.reviewGetCommitDiff, {
+  payload: ReviewCommitDiffInput,
+  success: ReviewCommitDiffResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
 const WsReviewGetDiffFileContentsRpc = Rpc.make(WS_METHODS.reviewGetDiffFileContents, {
   payload: ReviewDiffFileContentsInput,
   success: ReviewDiffFileContentsResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
+const WsReviewRunDiffFileActionRpc = Rpc.make(WS_METHODS.reviewRunDiffFileAction, {
+  payload: ReviewDiffFileActionInput,
   error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
 });
 
@@ -1784,8 +1809,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,
   WsVcsInitRpc,
+  WsReviewListCommitsRpc,
+  WsReviewGetCommitDiffRpc,
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
+  WsReviewRunDiffFileActionRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,

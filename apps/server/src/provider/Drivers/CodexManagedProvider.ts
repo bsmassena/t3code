@@ -8,7 +8,10 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { chatGptModels } from "../CodexChatGptModels.ts";
 import { makeCodexManagedRuntime } from "../CodexManagedRuntime.ts";
 import { ProviderDriverError } from "../Errors.ts";
-import { createCodexAdapterV2, CodexAppServerClientFactory } from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
+import {
+  createCodexAdapterV2,
+  CodexAppServerClientFactory,
+} from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import { ProviderAdapterOpenSessionError } from "../../orchestration-v2/ProviderAdapter.ts";
 import {
   checkCodexProviderStatus,
@@ -219,25 +222,34 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
     onUsageLimits: (update) => snapshot.applyUsageLimits(update),
   }).pipe(
     Effect.provideService(CodexAppServerClientFactory, {
-      open: (session) => resolveRuntime.pipe(
-        Effect.mapError((cause) => new ProviderAdapterOpenSessionError({
-          driver: DRIVER,
-          providerSessionId: session.providerSessionId,
-          cause,
-        })),
-        Effect.flatMap((effective) => clientFactory.open({
-          ...session,
-          settings: effective.config,
-          environment: effective.environment,
-        })),
-      ),
+      open: (session) =>
+        resolveRuntime.pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderAdapterOpenSessionError({
+                driver: DRIVER,
+                providerSessionId: session.providerSessionId,
+                cause,
+              }),
+          ),
+          Effect.flatMap((effective) =>
+            clientFactory.open({
+              ...session,
+              settings: effective.config,
+              environment: effective.environment,
+            }),
+          ),
+        ),
     }),
-    Effect.mapError((cause) => new ProviderDriverError({
-      driver: DRIVER,
-      instanceId,
-      detail: "Could not prepare managed Codex orchestration.",
-      cause,
-    })),
+    Effect.mapError(
+      (cause) =>
+        new ProviderDriverError({
+          driver: DRIVER,
+          instanceId,
+          detail: "Could not prepare managed Codex orchestration.",
+          cause,
+        }),
+    ),
   );
   const nativeGeneration = yield* makeCodexTextGeneration(
     config,

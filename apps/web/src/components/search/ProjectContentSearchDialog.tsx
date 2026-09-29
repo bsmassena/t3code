@@ -104,7 +104,7 @@ function OpenContentSearchDialog(props: {
   readonly target: ActiveProjectTarget;
 }) {
   const { target } = props;
-  const { resolvedTheme } = useTheme();
+  const { resolvedTheme, syntaxTheme } = useTheme();
   const [query, setQuery] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
@@ -290,6 +290,7 @@ function OpenContentSearchDialog(props: {
                           match={match}
                           path={group.path}
                           theme={resolvedTheme}
+                          syntaxTheme={syntaxTheme}
                         />
                       </span>
                     </button>

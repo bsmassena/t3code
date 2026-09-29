@@ -88,9 +88,17 @@ interface AnnotatableCodeViewProps {
   className?: string;
   renderCodeViewFooter?: () => ReactNode;
   unsafeCSSExtra?: string;
-  renderHeaderMetadata?: (fileDiff: FileDiffMetadata) => ReactNode;
-  renderHeaderFilenameSuffix: (fileDiff: FileDiffMetadata) => ReactNode;
   renderHeaderPrefix: (
+    fileDiff: FileDiffMetadata,
+    fileKey: string,
+    collapsed: boolean,
+  ) => ReactNode;
+  renderHeaderFilenameSuffix?: (
+    fileDiff: FileDiffMetadata,
+    fileKey: string,
+    collapsed: boolean,
+  ) => ReactNode;
+  renderHeaderMetadata?: (
     fileDiff: FileDiffMetadata,
     fileKey: string,
     collapsed: boolean,
@@ -112,9 +120,9 @@ export function AnnotatableCodeView({
   className,
   renderCodeViewFooter,
   unsafeCSSExtra,
-  renderHeaderMetadata,
-  renderHeaderFilenameSuffix,
   renderHeaderPrefix,
+  renderHeaderFilenameSuffix,
+  renderHeaderMetadata,
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -252,12 +260,6 @@ export function AnnotatableCodeView({
       {...(viewerRef ? { viewerRef } : {})}
       {...(className ? { className } : {})}
       {...(unsafeCSSExtra ? { unsafeCSSExtra } : {})}
-      {...(renderHeaderMetadata
-        ? {
-            renderHeaderMetadata: (item: CodeViewItem<DiffCommentAnnotationGroup>) =>
-              item.type === "diff" ? renderHeaderMetadata(item.fileDiff) : null,
-          }
-        : {})}
       {...(renderCodeViewFooter ? { renderCodeViewFooter } : {})}
       items={items}
       selectedLines={selectedLines}
@@ -268,12 +270,19 @@ export function AnnotatableCodeView({
         enableLineSelection: !hasOpenComment,
         onGutterUtilityClick: beginComment,
       }}
-      renderHeaderFilenameSuffix={(item) =>
-        item.type === "diff" ? renderHeaderFilenameSuffix(item.fileDiff) : null
-      }
       renderHeaderPrefix={(item) =>
         item.type === "diff"
           ? renderHeaderPrefix(item.fileDiff, item.id, item.collapsed === true)
+          : null
+      }
+      renderHeaderFilenameSuffix={(item) =>
+        item.type === "diff"
+          ? renderHeaderFilenameSuffix?.(item.fileDiff, item.id, item.collapsed === true)
+          : null
+      }
+      renderHeaderMetadata={(item) =>
+        item.type === "diff"
+          ? renderHeaderMetadata?.(item.fileDiff, item.id, item.collapsed === true)
           : null
       }
       renderAnnotation={(annotation) => {

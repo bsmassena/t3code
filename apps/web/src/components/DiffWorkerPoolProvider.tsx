@@ -11,12 +11,16 @@ import {
   type ReactNode,
 } from "react";
 import { useTheme } from "../hooks/useTheme";
-import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
+import {
+  DIFF_THEME_NAME_VALUES,
+  resolveDiffThemeName,
+  type DiffThemeName,
+} from "../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../lib/syntaxHighlighting";
 
 export class DiffWorkerError extends Schema.TaggedError<DiffWorkerError>()("DiffWorkerError", {
   operation: Schema.Literals(["create-worker", "get-render-options", "set-render-options"]),
-  themeName: Schema.Literals(["pierre-light", "pierre-dark"]),
+  themeName: Schema.Literals(DIFF_THEME_NAME_VALUES),
   cause: Schema.Defect(),
 }) {
   override get message(): string {
@@ -129,8 +133,8 @@ function DiffWorkerReady({ children }: { children?: ReactNode }) {
 }
 
 export function DiffWorkerPoolProvider({ children }: { children?: ReactNode }) {
-  const { resolvedTheme } = useTheme();
-  const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const { resolvedTheme, syntaxTheme } = useTheme();
+  const diffThemeName = resolveDiffThemeName(resolvedTheme, syntaxTheme);
   const workerPoolSize = useMemo(() => {
     const cores =
       typeof navigator === "undefined" ? 4 : Math.max(1, navigator.hardwareConcurrency || 4);

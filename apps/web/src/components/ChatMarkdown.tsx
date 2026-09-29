@@ -18,7 +18,6 @@ import {
   Maximize2Icon,
   MessageSquareIcon,
   MessageSquareWarningIcon,
-  Minimize2Icon,
   OctagonAlertIcon,
   PlayIcon,
   PresentationIcon,
@@ -121,6 +120,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { Button } from "./ui/button";
 import { ContextChip } from "./ContextChip";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "./ui/collapsible";
+import { Dialog, DialogPopup } from "./ui/dialog";
 import { ScrollArea } from "./ui/scroll-area";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -720,36 +720,11 @@ function readInitialWordWrapSetting(): boolean {
 
 function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const tableRef = useRef<HTMLTableElement | null>(null);
-  const [expanded, setExpanded] = useState(readInitialWordWrapSetting);
+  const [expandedOpen, setExpandedOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const expandLabel = expanded ? "Collapse table cells" : "Expand table cells";
+  const expandLabel = "Expand table";
   const copyLabel = copied ? "Copied" : "Copy table";
-
-  function toggleExpanded() {
-    const table = tableRef.current;
-    if (!table) return;
-
-    if (!expanded) {
-      const rows = [...table.rows];
-      const columnWidths = rows.reduce<number[]>((widths, row) => {
-        [...row.cells].forEach((cell, columnIndex) => {
-          widths[columnIndex] = Math.max(
-            widths[columnIndex] ?? 0,
-            cell.getBoundingClientRect().width,
-          );
-        });
-        return widths;
-      }, []);
-
-      [...(table.tHead?.rows[0]?.cells ?? [])].forEach((cell, columnIndex) => {
-        cell.style.minWidth = `${columnWidths[columnIndex] ?? cell.getBoundingClientRect().width}px`;
-      });
-    }
-
-    setExpanded((value) => !value);
-  }
 
   const handleCopy = useCallback((format: "markdown" | "csv") => {
     const table = containerRef.current?.querySelector("table");
@@ -788,15 +763,9 @@ function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
   );
 
   return (
-    <div
-      ref={containerRef}
-      className="chat-markdown-table-container"
-      data-expanded={expanded ? "true" : "false"}
-    >
+    <div ref={containerRef} className="chat-markdown-table-container">
       <ScrollArea radius="none" chainVerticalScroll scrollFade className="w-full max-w-full">
-        <table ref={tableRef} {...props}>
-          {children}
-        </table>
+        <table {...props}>{children}</table>
       </ScrollArea>
       <div className="mt-0.5 flex items-center justify-between select-none">
         <Tooltip>
@@ -804,15 +773,14 @@ function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
             render={
               <Button
                 type="button"
-                variant={expanded ? "secondary" : "ghost-muted"}
+                variant="ghost-muted"
                 size="icon-xs"
-                aria-pressed={expanded}
-                onClick={toggleExpanded}
+                onClick={() => setExpandedOpen(true)}
                 aria-label={expandLabel}
               />
             }
           >
-            {expanded ? <Minimize2Icon className="size-3" /> : <Maximize2Icon className="size-3" />}
+            <Maximize2Icon className="size-3" />
           </TooltipTrigger>
           <TooltipPopup side="top">{expandLabel}</TooltipPopup>
         </Tooltip>
@@ -842,6 +810,15 @@ function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
           </MenuPopup>
         </Menu>
       </div>
+      <Dialog open={expandedOpen} onOpenChange={setExpandedOpen}>
+        <DialogPopup aria-label="Expanded table" className="max-h-[90vh] w-fit max-w-[95vw]">
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="chat-markdown chat-markdown-table-dialog p-6">
+              <table {...props}>{children}</table>
+            </div>
+          </ScrollArea>
+        </DialogPopup>
+      </Dialog>
     </div>
   );
 }
@@ -2303,7 +2280,7 @@ function useChatMarkdownState({
   headingLevelOffset = 0,
   githubMedia = false,
 }: ChatMarkdownProps) {
-  const { resolvedTheme } = useTheme();
+  const { resolvedTheme, syntaxTheme } = useTheme();
   const [localMediaPreview, setLocalMediaPreview] = useState<ExpandedImagePreview | null>(null);
   const markdownRef = useRef<HTMLDivElement>(null);
   const expandMedia = onImageExpand ?? setLocalMediaPreview;
@@ -2408,7 +2385,7 @@ function useChatMarkdownState({
     },
     [environmentId, openInEditor],
   );
-  const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const diffThemeName = resolveDiffThemeName(resolvedTheme, syntaxTheme);
   const markdownFileLinkMetaByHref = useMemo(() => {
     const metaByHref = new Map<
       string,

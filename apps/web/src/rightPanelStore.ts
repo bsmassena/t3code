@@ -119,6 +119,8 @@ export interface ThreadPanelVisibility {
 }
 
 interface RightPanelStoreState {
+  maximized: boolean;
+  toggleMaximized: () => void;
   byThreadKey: Record<string, ThreadRightPanelState>;
   threadPanelVisibilityByThreadKey: Record<string, ThreadPanelVisibility>;
   /** Session-only count of user panel choices per thread. Automatic updates do not advance it. */
@@ -568,6 +570,8 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
 export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set, get) => ({
+      maximized: false,
+      toggleMaximized: () => set((state) => ({ maximized: !state.maximized })),
       byThreadKey: {},
       threadPanelVisibilityByThreadKey: {},
       userActionRevisionByThreadKey: {},
@@ -989,6 +993,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       partialize: (state) => ({
+        maximized: state.maximized,
         byThreadKey: Object.fromEntries(
           Object.entries(state.byThreadKey).filter(
             ([threadKey]) => !isPullRequestsPanelKey(threadKey),

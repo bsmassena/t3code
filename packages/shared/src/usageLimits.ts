@@ -13,7 +13,6 @@ import {
   type ServerProviderSlashCommand,
   isProviderAvailable,
   type ServerProvider,
-  type OrchestrationThreadActivity,
   type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
   type UsageLimitSourceSnapshots,
@@ -34,7 +33,7 @@ export function usesChatGptSharing(provider: ServerProvider | null | undefined):
 
 /** A historical limit must not turn an unrelated current failure into a usage notice. */
 export function isChatGptUsageLimitError(
-  activities: readonly OrchestrationThreadActivity[],
+  activities: readonly { readonly kind: string; readonly payload: unknown }[],
   error: string | null | undefined,
 ): boolean {
   if (!error) return false;

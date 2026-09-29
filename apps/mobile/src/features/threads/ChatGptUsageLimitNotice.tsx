@@ -1,5 +1,9 @@
-import type { EnvironmentId, OrchestrationThreadShell } from "@t3tools/contracts";
-import { CHATGPT_USAGE_URL, isChatGptUsageLimitError } from "@t3tools/shared/usageLimits";
+import {
+  latestExecutedRun,
+  latestRootProviderFailure,
+} from "@t3tools/shared/orchestrationV2ThreadError";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { CHATGPT_USAGE_URL } from "@t3tools/shared/usageLimits";
 import * as Option from "effect/Option";
 import { Linking, Pressable, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
@@ -11,11 +15,16 @@ export function ChatGptUsageLimitNotice({
   thread,
 }: {
   environmentId: EnvironmentId;
-  thread: OrchestrationThreadShell;
+  thread: { readonly id: ThreadId };
 }) {
   const state = useThreadDetail({ environmentId, threadId: thread.id });
   const detail = Option.getOrNull(state.data);
-  if (!isChatGptUsageLimitError(detail?.activities ?? [], thread.session?.lastError)) return null;
+  if (
+    !detail ||
+    latestRootProviderFailure(latestExecutedRun(detail.runs), detail.turnItems)?.code !==
+      "subscription_sharing_usage_limit_exceeded"
+  )
+    return null;
   return (
     <View
       accessibilityRole="alert"

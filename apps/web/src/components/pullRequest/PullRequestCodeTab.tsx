@@ -220,7 +220,8 @@ function PullRequestCodeTab({
   /** Bumped by the panel's refresh button: drop the accumulated pages and re-read the diff. */
   refreshToken?: number;
 }) {
-  const { resolvedTheme } = useTheme();
+  const { resolvedTheme, syntaxTheme } = useTheme();
+  const diffThemeName = resolveDiffThemeName(resolvedTheme, syntaxTheme);
   const settings = useClientSettings();
   const [toggledFiles, setToggledFiles] = useState<ReadonlySet<string>>(() => new Set());
   // A change of any size can carry hundreds of commits, and a menu that long is a scroll rather
@@ -387,7 +388,7 @@ function PullRequestCodeTab({
       loadedSlices.map((slice) => {
         // The patch's own hash is part of the key: a refreshed page reuses its cursor, and a
         // key of position alone would keep handing back the parse of the patch it replaced.
-        const cacheKey = `pull-request:${scopeKey}:${resolvedTheme}:${ignoreWhitespace}:${slice.cursor ?? "first"}:${fnv1a32(slice.patch)}`;
+        const cacheKey = `pull-request:${scopeKey}:${diffThemeName}:${ignoreWhitespace}:${slice.cursor ?? "first"}:${fnv1a32(slice.patch)}`;
         const cached = parseCache.current.get(cacheKey);
         if (cached) return cached;
         const parsed = getRenderablePatch(slice.patch, cacheKey, {
@@ -397,7 +398,7 @@ function PullRequestCodeTab({
         if (parsed) parseCache.current.set(cacheKey, parsed);
         return parsed;
       }),
-    [loadedSlices, resolvedTheme, scopeKey, ignoreWhitespace],
+    [loadedSlices, diffThemeName, scopeKey, ignoreWhitespace],
   );
   // Ordered within a slice rather than across them: ordering the accumulated set would let a late
   // slice push a file the reader is part way through further down the page.
@@ -874,7 +875,7 @@ function PullRequestCodeTab({
       diffStyle: diffLayout === "split" ? ("split" as const) : ("unified" as const),
       lineDiffType: "none" as const,
       overflow: wordWrap ? ("wrap" as const) : ("scroll" as const),
-      theme: resolveDiffThemeName(resolvedTheme),
+      theme: diffThemeName,
       preferredHighlighter: PREFERRED_HIGHLIGHTER,
       themeType: resolvedTheme,
       stickyHeaders: true,
@@ -888,7 +889,16 @@ function PullRequestCodeTab({
       onGutterUtilityClick: beginComment,
       onLineSelectionEnd: beginComment,
     }),
-    [diffLayout, wordWrap, resolvedTheme, loadDiffFiles, canCommentOnLines, draft, beginComment],
+    [
+      diffLayout,
+      wordWrap,
+      diffThemeName,
+      resolvedTheme,
+      loadDiffFiles,
+      canCommentOnLines,
+      draft,
+      beginComment,
+    ],
   );
 
   const runThreadCommand = useCallback(

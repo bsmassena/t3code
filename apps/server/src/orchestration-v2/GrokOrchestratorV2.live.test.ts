@@ -1,3 +1,5 @@
+import { CodexInstallation } from "../provider/CodexInstallation.ts";
+import { ServerEnvironmentIdentity } from "../environment/ServerEnvironment.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { SourceControlProviderRegistry } from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -82,6 +84,8 @@ const providerInstanceRegistryLayer = ProviderInstanceRegistryHydrationLive.pipe
       ),
       Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers),
       ModelManifest.layerTest,
+      Layer.mock(CodexInstallation)({ managedDirectory: "unused-managed-installation" }),
+      Layer.mock(ServerEnvironmentIdentity)({}),
       AntigravityInstallation.layer.pipe(
         Layer.provide(serverConfigLayer.pipe(Layer.provide(PlatformTestLayer))),
         Layer.provide(FetchHttpClient.layer),

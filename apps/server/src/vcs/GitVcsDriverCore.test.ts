@@ -1298,36 +1298,38 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
-    it.effect("keeps untracked filenames with pathspec magic in the review", () =>
-      Effect.gen(function* () {
-        const cwd = yield* makeTmpDir();
-        yield* initRepoWithCommit(cwd);
-        const driver = yield* GitVcsDriver.GitVcsDriver;
-        yield* writeTextFile(cwd, ":(exclude)after.ts", "literal pathspec contents\n");
-        yield* writeTextFile(cwd, "ordinary.ts", "ordinary contents\n");
-        const indexBefore = yield* git(cwd, ["ls-files", "--stage"]);
+    it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
+      "keeps untracked filenames with pathspec magic in the review",
+      () =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          yield* initRepoWithCommit(cwd);
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          yield* writeTextFile(cwd, ":(exclude)after.ts", "literal pathspec contents\n");
+          yield* writeTextFile(cwd, "ordinary.ts", "ordinary contents\n");
+          const indexBefore = yield* git(cwd, ["ls-files", "--stage"]);
 
-        const preview = yield* driver.getReviewDiffPreview({ cwd, ignoreWhitespace: false });
-        const diff = preview.sources.find((source) => source.kind === "working-tree")?.diff ?? "";
+          const preview = yield* driver.getReviewDiffPreview({ cwd, ignoreWhitespace: false });
+          const diff = preview.sources.find((source) => source.kind === "working-tree")?.diff ?? "";
 
-        assert.include(diff, "+literal pathspec contents");
-        assert.include(diff, "+ordinary contents");
-        const scoped = yield* driver.getReviewDiffPreview({
-          cwd,
-          file: {
-            path: ":(exclude)after.ts",
-            previousPath: null,
-            sourceKind: "working-tree",
-          },
-        });
-        const scopedSource = scoped.sources.find((source) => source.kind === "working-tree")!;
-        assert.deepStrictEqual(scopedSource.files, [
-          { path: ":(exclude)after.ts", previousPath: null, additions: 1, deletions: 0 },
-        ]);
-        assert.include(scopedSource.diff, "+literal pathspec contents");
-        assert.notInclude(scopedSource.diff, "ordinary.ts");
-        assert.strictEqual(yield* git(cwd, ["ls-files", "--stage"]), indexBefore);
-      }),
+          assert.include(diff, "+literal pathspec contents");
+          assert.include(diff, "+ordinary contents");
+          const scoped = yield* driver.getReviewDiffPreview({
+            cwd,
+            file: {
+              path: ":(exclude)after.ts",
+              previousPath: null,
+              sourceKind: "working-tree",
+            },
+          });
+          const scopedSource = scoped.sources.find((source) => source.kind === "working-tree")!;
+          assert.deepStrictEqual(scopedSource.files, [
+            { path: ":(exclude)after.ts", previousPath: null, additions: 1, deletions: 0 },
+          ]);
+          assert.include(scopedSource.diff, "+literal pathspec contents");
+          assert.notInclude(scopedSource.diff, "ordinary.ts");
+          assert.strictEqual(yield* git(cwd, ["ls-files", "--stage"]), indexBefore);
+        }),
     );
 
     it.effect("detects an unstaged rename with edits without mutating a split index", () =>
@@ -2365,6 +2367,249 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
     );
   });
 
+  describe("fork review actions", () => {
+    it.effect("lists recent commits and previews only the selected commit", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        yield* writeTextFile(cwd, "first.ts", "export const first = true;\n");
+        yield* git(cwd, ["add", "first.ts"]);
+        yield* git(cwd, ["commit", "-m", "add first file"]);
+        const firstCommit = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        yield* writeTextFile(cwd, "second.ts", "export const second = true;\n");
+        yield* git(cwd, ["add", "second.ts"]);
+        yield* git(cwd, ["commit", "-m", "add second file"]);
+        const secondCommit = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const history = yield* driver.listReviewCommits({ cwd, limit: 10 });
+        assert.strictEqual(history.commits[0]?.sha, secondCommit);
+        assert.strictEqual(history.commits[0]?.subject, "add second file");
+        assert.strictEqual(history.commits[1]?.sha, firstCommit);
+
+        const preview = yield* driver.getReviewCommitDiff({
+          cwd,
+          commitSha: firstCommit,
+          ignoreWhitespace: false,
+        });
+        assert.strictEqual(preview.source.kind, "commit");
+        assert.strictEqual(preview.source.headRef, firstCommit);
+        assert.include(preview.source.diff, "first.ts");
+        assert.notInclude(preview.source.diff, "second.ts");
+
+        const contents = yield* driver.getReviewDiffFileContents(
+          makeReviewDiffFileContentsInput(cwd, {
+            sourceKind: "commit",
+            changeType: "new",
+            baseRef: preview.source.baseRef,
+            headRef: preview.source.headRef,
+            oldPath: "first.ts",
+            newPath: "first.ts",
+          }),
+        );
+        assert.deepStrictEqual(contents, {
+          oldContents: "",
+          newContents: "export const first = true;\n",
+        });
+      }),
+    );
+
+    it.effect("returns an empty commit list for an unborn repository", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.initRepo({ cwd });
+
+        const history = yield* driver.listReviewCommits({ cwd, limit: 10 });
+
+        assert.deepStrictEqual(history.commits, []);
+      }),
+    );
+
+    it.effect("separates staged, unstaged, and untracked changes", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "README.md", "# staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "# unstaged\n");
+        yield* writeTextFile(cwd, "new.ts", "export const value = true;\n");
+
+        const preview = yield* driver.getReviewDiffPreview({ cwd, includeLocalSources: true });
+        const legacyPreview = yield* driver.getReviewDiffPreview({ cwd });
+        const unstaged =
+          preview.localSources?.find((source) => source.kind === "unstaged")?.diff ?? "";
+        const staged = preview.localSources?.find((source) => source.kind === "staged")?.diff ?? "";
+
+        assert.deepStrictEqual(
+          preview.sources.map((source) => source.kind),
+          ["working-tree", "branch-range"],
+        );
+        assert.strictEqual(legacyPreview.localSources, undefined);
+
+        assert.include(unstaged, "+# unstaged");
+        assert.include(unstaged, "new.ts");
+        assert.notInclude(unstaged, "-# test");
+        assert.include(staged, "+# staged");
+        assert.include(staged, "-# test");
+        assert.notInclude(staged, "unstaged");
+        assert.notInclude(staged, "new.ts");
+      }),
+    );
+
+    it.effect("loads index-backed contents for staged and unstaged previews", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "README.md", "# staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "# unstaged\n");
+
+        const [staged, unstaged] = yield* Effect.all([
+          driver.getReviewDiffFileContents(
+            makeReviewDiffFileContentsInput(cwd, { sourceKind: "staged" }),
+          ),
+          driver.getReviewDiffFileContents(
+            makeReviewDiffFileContentsInput(cwd, {
+              sourceKind: "unstaged",
+              baseRef: null,
+            }),
+          ),
+        ]);
+
+        assert.deepStrictEqual(staged, { oldContents: "# test\n", newContents: "# staged\n" });
+        assert.deepStrictEqual(unstaged, {
+          oldContents: "# staged\n",
+          newContents: "# unstaged\n",
+        });
+      }),
+    );
+
+    it.effect("stages, unstages, and reverts only the selected file", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "one.ts", "one\n");
+        yield* writeTextFile(cwd, "two.ts", "two\n");
+
+        yield* driver.runReviewDiffFileAction({ cwd, filePath: "one.ts", action: "stage" });
+        assert.strictEqual(yield* git(cwd, ["diff", "--cached", "--name-only"]), "one.ts");
+
+        yield* driver.runReviewDiffFileAction({ cwd, filePath: "one.ts", action: "unstage" });
+        assert.strictEqual(yield* git(cwd, ["diff", "--cached", "--name-only"]), "");
+
+        yield* writeTextFile(cwd, "README.md", "changed\n");
+        yield* driver.runReviewDiffFileAction({ cwd, filePath: "README.md", action: "revert" });
+        assert.strictEqual(yield* git(cwd, ["diff", "--name-only"]), "");
+
+        yield* writeTextFile(cwd, "README.md", "staged change\n");
+        yield* driver.runReviewDiffFileAction({ cwd, filePath: "README.md", action: "stage" });
+        yield* driver.runReviewDiffFileAction({
+          cwd,
+          filePath: "README.md",
+          action: "revert-staged",
+        });
+        assert.strictEqual(yield* git(cwd, ["diff", "--cached", "--name-only"]), "");
+        assert.strictEqual(yield* git(cwd, ["diff", "--name-only"]), "");
+
+        yield* writeTextFile(cwd, "added.ts", "added\n");
+        yield* driver.runReviewDiffFileAction({ cwd, filePath: "added.ts", action: "stage" });
+        yield* driver.runReviewDiffFileAction({
+          cwd,
+          filePath: "added.ts",
+          action: "revert-staged",
+        });
+        assert.strictEqual(
+          yield* git(cwd, ["ls-files", "--others", "--exclude-standard"]),
+          "one.ts\ntwo.ts",
+        );
+      }),
+    );
+
+    it.effect("reverts only the selected untracked file using a literal path", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* writeTextFile(cwd, "new [1].ts", "selected\n");
+        yield* writeTextFile(cwd, "new 1.ts", "keep\n");
+        yield* writeTextFile(cwd, "README.md", "staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "unstaged\n");
+
+        yield* driver.runReviewDiffFileAction({
+          cwd,
+          filePath: "new [1].ts",
+          action: "revert",
+        });
+
+        assert.isFalse(yield* fileSystem.exists(path.join(cwd, "new [1].ts")));
+        assert.strictEqual(yield* fileSystem.readFileString(path.join(cwd, "new 1.ts")), "keep\n");
+        assert.strictEqual(yield* git(cwd, ["show", ":README.md"]), "staged");
+        assert.strictEqual(
+          yield* fileSystem.readFileString(path.join(cwd, "README.md")),
+          "unstaged\n",
+        );
+      }),
+    );
+
+    it.effect("stages and unstages both paths of a renamed file", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "old.ts", "renamed\n");
+        yield* git(cwd, ["add", "old.ts"]);
+        yield* git(cwd, ["commit", "-m", "add rename fixture"]);
+        yield* git(cwd, ["mv", "old.ts", "new.ts"]);
+
+        yield* driver.runReviewDiffFileAction({
+          cwd,
+          filePath: "new.ts",
+          previousFilePath: "old.ts",
+          action: "unstage",
+        });
+        assert.strictEqual(yield* git(cwd, ["diff", "--cached", "--name-only"]), "");
+
+        yield* driver.runReviewDiffFileAction({
+          cwd,
+          filePath: "new.ts",
+          previousFilePath: "old.ts",
+          action: "stage",
+        });
+        assert.match(
+          yield* git(cwd, ["diff", "--cached", "--name-status"]),
+          /^R\d*\s+old\.ts\s+new\.ts$/,
+        );
+      }),
+    );
+
+    it.effect("rejects broad pathspecs for per-file review actions", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "one.ts", "one\n");
+        yield* writeTextFile(cwd, "two.ts", "two\n");
+
+        const error = yield* driver
+          .runReviewDiffFileAction({ cwd, filePath: ".", action: "stage" })
+          .pipe(Effect.flip);
+
+        assert.strictEqual(error.operation, "GitVcsDriver.runReviewDiffFileAction");
+        assert.match(error.detail, /not an exact changed file/);
+        assert.strictEqual(yield* git(cwd, ["diff", "--cached", "--name-only"]), "");
+      }),
+    );
+  });
+
   describe("worktree operations", () => {
     it.effect("uses parallel checkout without skipping filters or hooks", () =>
       Effect.gen(function* () {
@@ -2725,51 +2970,6 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         const fileSystem = yield* FileSystem.FileSystem;
         assert.equal(yield* fileSystem.exists(worktreePath), false);
         assert.notInclude(yield* driver.listLocalBranchNames(cwd), "feature/worktree");
-      }),
-    );
-
-    it.effect("allows worktree removal to run longer than the default command timeout", () =>
-      Effect.gen(function* () {
-        const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
-        const removalStarted = yield* Deferred.make<void>();
-        const delayedRemovalSpawner = ChildProcessSpawner.make((command) =>
-          Effect.gen(function* () {
-            if (
-              ChildProcess.isStandardCommand(command) &&
-              command.args[0] === "worktree" &&
-              command.args[1] === "remove"
-            ) {
-              yield* Deferred.succeed(removalStarted, undefined);
-              yield* Effect.sleep("31 seconds");
-            }
-            return yield* delegate.spawn(command);
-          }),
-        );
-        const driver = yield* makeGitVcsDriverCore().pipe(
-          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, delayedRemovalSpawner),
-          Effect.provide(ServerConfigLayer),
-        );
-        const cwd = yield* makeTmpDir();
-        const { initialBranch } = yield* initRepoWithCommit(cwd);
-        const fileSystem = yield* FileSystem.FileSystem;
-        const pathService = yield* Path.Path;
-        const worktreePath = pathService.join(yield* makeTmpDir("git-worktrees-"), "slow-removal");
-
-        yield* driver.createWorktree({
-          cwd,
-          path: worktreePath,
-          refName: initialBranch,
-          newRefName: "feature/slow-removal",
-        });
-
-        const removal = yield* driver
-          .removeWorktree({ cwd, path: worktreePath, force: true })
-          .pipe(Effect.forkChild({ startImmediately: true }));
-        yield* Deferred.await(removalStarted);
-        yield* TestClock.adjust("31 seconds");
-        yield* Fiber.join(removal);
-
-        assert.equal(yield* fileSystem.exists(worktreePath), false);
       }),
     );
 

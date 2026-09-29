@@ -21,7 +21,6 @@ import {
   recallCheckoutIsRepo,
   rememberCheckoutIsRepo,
 } from "./ChatView.logic";
-import { isChatGptUsageLimitError } from "@t3tools/shared/usageLimits";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import {
@@ -1700,7 +1699,7 @@ export default function ChatView(props: ChatViewProps) {
       ? { citation, key: citationLocation.key ?? citationLocation.href }
       : null;
   }, [citationLocation.href, citationLocation.key, environmentId, threadId]);
-  const { resolvedTheme } = useTheme();
+  const { resolvedTheme, syntaxTheme } = useTheme();
   // Granular store selectors — avoid subscribing to prompt changes.
   const composerRuntimeMode = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.runtimeMode ?? null,
@@ -1822,10 +1821,8 @@ export default function ChatView(props: ChatViewProps) {
   const isRevertingCheckpoint = useComposerDraftStore((store) =>
     store.rewindingThreadKeys.has(routeThreadKey),
   );
-  const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
-    null,
-  );
   const userInputResponsesInFlight = useRef(new Set<string>());
+  const rightPanelMaximizedPreference = useRightPanelStore((state) => state.maximized);
   const [respondingRequestIds, setRespondingRequestIds] = useState<RuntimeRequestId[]>([]);
 
   useEffect(() => {
@@ -2278,8 +2275,7 @@ export default function ChatView(props: ChatViewProps) {
     renderedRightPanelSurface,
   );
   const canMaximizeRightPanel = rightPanelOpen && !shouldUsePlanSidebarSheet;
-  const rightPanelMaximized =
-    canMaximizeRightPanel && maximizedRightPanelThreadKey === routeThreadKey;
+  const rightPanelMaximized = canMaximizeRightPanel && rightPanelMaximizedPreference;
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUsePlanSidebarSheet;
   const [threadPanelPresentation, setThreadPanelPresentation] =
     useState<ThreadPanelPresentation>("inline");
@@ -4087,6 +4083,9 @@ export default function ChatView(props: ChatViewProps) {
   const mountComposerModelStrip =
     routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
   const showComposerModelStrip = mountComposerModelStrip && restingComposerControlsVisible;
+  const initialDiffPanelGitScope =
+    gitStatusQuery.data?.hasWorkingTreeChanges === true ? "working-tree" : "branch";
+  const diffPanelGitStatusResolutionKey = gitStatusQuery.data ? "resolved" : "pending";
   const terminalShortcutLabelOptions = useMemo(
     () => ({
       context: {
@@ -5389,7 +5388,6 @@ export default function ChatView(props: ChatViewProps) {
           .getState()
           .open(activeThreadRef, { kind: "device", ...activeRightPanelSurface.target });
       }
-      setMaximizedRightPanelThreadKey(null);
       useRightPanelStore.getState().close(activeThreadRef);
     }
   }, [activeRightPanelSurface, activeThreadRef]);
@@ -5558,10 +5556,8 @@ export default function ChatView(props: ChatViewProps) {
   }, [activeThreadRef, threadPanelPresentation]);
   const toggleRightPanelMaximized = useCallback(() => {
     if (!canMaximizeRightPanel) return;
-    setMaximizedRightPanelThreadKey((threadKey) =>
-      threadKey === routeThreadKey ? null : routeThreadKey,
-    );
-  }, [canMaximizeRightPanel, routeThreadKey]);
+    useRightPanelStore.getState().toggleMaximized();
+  }, [canMaximizeRightPanel]);
   const cleanupRightPanelSurfaces = useCallback(
     (surfaces: readonly RightPanelSurface[]) => {
       if (!activeThreadRef) return;
@@ -10244,8 +10240,9 @@ export default function ChatView(props: ChatViewProps) {
     ) : renderedRightPanelSurface?.kind === "diff" ? (
       <Suspense fallback={null}>
         <DiffPanel
-          key={activeThreadKey}
+          key={`${activeThreadKey}:${diffPanelGitStatusResolutionKey}`}
           mode="embedded"
+          initialGitScope={initialDiffPanelGitScope}
           composerDraftTarget={composerDraftTarget}
           workspaceMutationId={workspaceMutationId}
         />
@@ -10603,7 +10600,14 @@ export default function ChatView(props: ChatViewProps) {
                     ? (serverRuntime?.lastErrorClass ?? null)
                     : null
                 }
-                chatGptUsageLimit={isChatGptUsageLimitError(threadActivities, timelineThreadError)}
+                chatGptUsageLimit={
+                  serverProjection != null &&
+                  serverLatestRun != null &&
+                  latestRootProviderFailure(
+                    latestExecutedRun(serverProjection.runs),
+                    serverProjection.turnItems,
+                  )?.code === "subscription_sharing_usage_limit_exceeded"
+                }
                 onDismiss={() => {
                   setThreadError(activeThread.id, null);
                   dismissThreadErrorBannerForSession(threadErrorBannerKey);
@@ -10681,6 +10685,7 @@ export default function ChatView(props: ChatViewProps) {
                     : (gitCwd ?? undefined)
                 }
                 resolvedTheme={resolvedTheme}
+                syntaxTheme={syntaxTheme}
                 timestampFormat={timestampFormat}
                 workspaceRoot={
                   paintOnlyDisplayedTimeline

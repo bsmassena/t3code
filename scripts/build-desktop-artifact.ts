@@ -1827,8 +1827,14 @@ export const preflightMacDesktopBuild = Effect.fn("preflightMacDesktopBuild")(fu
 function windowsVswherePrerequisiteScript(arch: typeof BuildArch.Type): string {
   const toolComponents =
     arch === "arm64"
-      ? ["Microsoft.VisualStudio.Component.VC.Tools.ARM64"]
-      : ["Microsoft.VisualStudio.Component.VC.Tools.x86.x64"];
+      ? [
+          "Microsoft.VisualStudio.Component.VC.Tools.ARM64",
+          "Microsoft.VisualStudio.Component.VC.Tools.ARM64.Spectre",
+        ]
+      : [
+          "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+          "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre",
+        ];
   const spectreArch = arch === "arm64" ? "arm64" : "x64";
   return [
     "$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\\Installer\\vswhere.exe'",
@@ -2099,6 +2105,9 @@ const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBundleIsSel
       });
     }
 
+    const probeEnv = { ...process.env };
+    delete probeEnv.ELECTRON_RUN_AS_NODE;
+
     // --version exercises the eagerly loaded module graph, which is where a
     // missing dependency shows up, without starting a server or touching disk
     // state. It does not cover lazily imported externals: node-pty is checked
@@ -2120,7 +2129,7 @@ const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBundleIsSel
           // NODE_PATH would let a createRequire call inside the bundle resolve
           // a missing external from outside the packaged tree, which is the
           // whole thing this is trying to rule out.
-          env: { ...process.env, NODE_PATH: "" },
+          env: { ...probeEnv, NODE_PATH: "" },
         },
       ),
       {

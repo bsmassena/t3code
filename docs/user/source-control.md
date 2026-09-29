@@ -101,6 +101,10 @@ uses the project's instructions and recent commit subjects.
 
 ## Review and merge
 
+For local changes, open the diff panel to browse files, switch between unstaged, staged, branch,
+and turn scopes, or change between unified and split layouts. File headers can stage or unstage one
+file at a time; tracked unstaged files can also be reverted.
+
 Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
 or merge. You can edit review titles and descriptions and your own comments where the host allows it.
 GitLab calls these merge requests.

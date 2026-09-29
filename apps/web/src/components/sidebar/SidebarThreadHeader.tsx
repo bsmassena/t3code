@@ -1,3 +1,5 @@
+import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 /**
  * The sidebar header: one row holding search, project scope and new thread.
  *
@@ -10,7 +12,7 @@
  * of the sidebar's scope logic. `searchFieldRef` lands on the search field so
  * the picker's popup can anchor to that width rather than to its 28px trigger.
  */
-import { FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { ArrowUpDownIcon, FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -25,6 +27,8 @@ import { SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface SidebarThreadHeaderProps {
+  sortOrder?: SidebarThreadSortOrder;
+  onSortOrderChange?: (order: SidebarThreadSortOrder) => void;
   /** Lands on the search field so a popup can anchor to its width. */
   searchFieldRef?: RefObject<HTMLDivElement | null>;
   /** Without projects there is nothing to scope, so those controls stay out. */
@@ -50,6 +54,8 @@ export interface SidebarThreadHeaderProps {
 }
 
 export function SidebarThreadHeader({
+  sortOrder = "created_at",
+  onSortOrderChange,
   searchFieldRef,
   hasProjects,
   projectScope,
@@ -124,6 +130,26 @@ export function SidebarThreadHeader({
           hover states, and a background well reads far louder on themed
           palettes than on the base light and dark ones. */}
       <div className="flex shrink-0 items-center">
+        {onSortOrderChange ? (
+          <Menu>
+            <MenuTrigger
+              render={<Button size="icon-sm" variant="ghost" aria-label="Sort threads" />}
+            >
+              <ArrowUpDownIcon />
+            </MenuTrigger>
+            <MenuPopup align="end">
+              <MenuRadioGroup
+                value={sortOrder}
+                onValueChange={(value) => {
+                  if (value === "created_at" || value === "updated_at") onSortOrderChange(value);
+                }}
+              >
+                <MenuRadioItem value="created_at">Created / manual order</MenuRadioItem>
+                <MenuRadioItem value="updated_at">Last user message</MenuRadioItem>
+              </MenuRadioGroup>
+            </MenuPopup>
+          </Menu>
+        ) : null}
         {hasProjects ? (
           <>
             {projectScope}

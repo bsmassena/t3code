@@ -11,27 +11,41 @@ describe("diffPanelStore", () => {
     useDiffPanelStore.setState({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      diffFileUiStateByScopeKey: {},
+      diffRenderMode: "stacked",
     }),
   );
 
-  it("defaults each thread to working tree changes without requiring git status", () => {
+  it("keeps the selected render mode in panel and persisted state", async () => {
+    useDiffPanelStore.getState().setDiffRenderMode("split");
+
+    expect(useDiffPanelStore.getState().diffRenderMode).toBe("split");
     expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "unstaged" });
+      useDiffPanelStore.persist.getOptions().partialize?.(useDiffPanelStore.getState()),
+    ).toMatchObject({ diffRenderMode: "split" });
+
+    const { name, storage } = useDiffPanelStore.persist.getOptions();
+    if (!name) throw new Error("Expected diff panel persistence to have a storage name");
+    const persisted = await storage?.getItem(name);
+    expect(persisted?.state).toMatchObject({ diffRenderMode: "split" });
+
+    useDiffPanelStore.setState({ diffRenderMode: "stacked" });
+    if (persisted) await storage?.setItem(name, persisted);
+    await useDiffPanelStore.persist.rehydrate();
+
+    expect(useDiffPanelStore.getState().diffRenderMode).toBe("split");
   });
 
-  it("defaults to working tree changes before a thread is selected", () => {
-    expect(selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, null)).toEqual({
-      kind: "unstaged",
-    });
-  });
-
-  it("preserves an explicit branch selection", () => {
-    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "branch");
-
+  it("defaults each thread to branch changes with automatic base selection", () => {
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
     ).toEqual({ kind: "branch", baseRef: null });
+  });
+
+  it("defaults dirty threads to the combined working tree", () => {
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF, true),
+    ).toEqual({ kind: "working-tree" });
   });
 
   it("clears incompatible selection fields when changing scopes", () => {
@@ -49,29 +63,28 @@ describe("diffPanelStore", () => {
     ).toEqual({ kind: "branch", baseRef: "origin/main" });
   });
 
-  it("clears a thread's turn and file when selecting working tree without changing another thread's branch base", () => {
-    const otherThreadRef = scopeThreadRef(
-      EnvironmentId.make("environment-1"),
-      ThreadId.make("thread-2"),
-    );
-    const store = useDiffPanelStore.getState();
-    store.selectBranchBaseRef(THREAD_REF, "origin/release");
-    store.selectTurn(THREAD_REF, RunId.make("turn-1"), "src/app.ts");
-    store.selectBranchBaseRef(otherThreadRef, "origin/main");
+  it("selects staged changes as a distinct scope", () => {
+    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "staged");
 
-    store.selectGitScope(THREAD_REF, "unstaged");
-
-    const { byThreadKey } = useDiffPanelStore.getState();
-    expect(selectThreadDiffPanelSelection(byThreadKey, THREAD_REF)).toEqual({ kind: "unstaged" });
-    expect(selectThreadDiffPanelSelection(byThreadKey, otherThreadRef)).toEqual({
-      kind: "branch",
-      baseRef: "origin/main",
-    });
-
-    store.selectGitScope(THREAD_REF, "branch");
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: "origin/release" });
+    ).toEqual({ kind: "staged" });
+  });
+
+  it("selects a committed diff as a distinct scope", () => {
+    useDiffPanelStore.getState().selectCommit(THREAD_REF, " abc123 ");
+
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "commit", commitSha: "abc123" });
+  });
+
+  it("selects the combined working tree as a distinct scope", () => {
+    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "working-tree");
+
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "working-tree" });
   });
 
   it("increments the reveal request when opening the same turn file again", () => {
@@ -107,6 +120,49 @@ describe("diffPanelStore", () => {
       turnId: latestTurnId,
       filePath: "src/app.ts",
       revealRequestId: 1,
+    });
+  });
+
+  it("persists expanded and viewed files until the thread is removed", () => {
+    const scopeKey = `${THREAD_REF.environmentId}:${THREAD_REF.threadId}:branch`;
+    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, "src/app.ts");
+    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, "src/app.ts");
+
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
+      expandedFileKeys: ["src/app.ts"],
+      viewedFileKeys: ["src/app.ts"],
+    });
+    expect(
+      useDiffPanelStore.persist.getOptions().partialize?.(useDiffPanelStore.getState()),
+    ).toMatchObject({
+      diffFileUiStateByScopeKey: {
+        [scopeKey]: {
+          expandedFileKeys: ["src/app.ts"],
+          viewedFileKeys: ["src/app.ts"],
+        },
+      },
+    });
+
+    useDiffPanelStore.getState().removeThread(THREAD_REF);
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toBeUndefined();
+  });
+
+  it("keeps unchanged file state while removing stale content keys", () => {
+    const scopeKey = `${THREAD_REF.environmentId}:${THREAD_REF.threadId}:branch`;
+    const unchangedKey = "src/app.ts:unchanged";
+    const changedKey = "src/other.ts:old";
+    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, unchangedKey);
+    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, changedKey);
+    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, unchangedKey);
+    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, changedKey);
+
+    useDiffPanelStore
+      .getState()
+      .reconcileDiffFileUiState(scopeKey, [unchangedKey, "src/other.ts:new"]);
+
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
+      expandedFileKeys: [unchangedKey],
+      viewedFileKeys: [unchangedKey],
     });
   });
 });

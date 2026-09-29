@@ -3,6 +3,12 @@ import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import {
+  DEFAULT_SYNTAX_THEME_PREFERENCE,
+  isSyntaxThemePreference,
+  SYNTAX_THEME_STORAGE_KEY,
+  type SyntaxThemePreference,
+} from "../syntaxTheme";
+import {
   applyThemePalette,
   CUSTOM_THEMES_STORAGE_KEY,
   invalidateCustomThemes,
@@ -31,7 +37,9 @@ type ThemeSnapshot = {
   followSystem: boolean;
   appearanceMode: ThemePreferenceMode;
   themeHalves: ThemeHalves | null;
+  syntaxTheme: SyntaxThemePreference;
 };
+type ThemeApplicationSnapshot = Omit<ThemeSnapshot, "resolvedTheme" | "syntaxTheme">;
 
 type DesktopThemeBridge = Pick<DesktopBridge, "setTheme">;
 
@@ -44,6 +52,7 @@ const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
   followSystem: true,
   appearanceMode: "system",
   themeHalves: null,
+  syntaxTheme: DEFAULT_SYNTAX_THEME_PREFERENCE,
 };
 
 /** Live read of the stored appearance mix, for callers that must not rely on
@@ -136,8 +145,9 @@ let listeners: Array<() => void> = [];
 let lastSnapshot: ThemeSnapshot | null = null;
 let snapshotStale = true;
 let lastDesktopTheme: "light" | "dark" | "system" | null = null;
-let lastAppliedTheme: Omit<ThemeSnapshot, "resolvedTheme"> | null = null;
+let lastAppliedTheme: ThemeApplicationSnapshot | null = null;
 let themeStorageReadFailure: ThemeStorageError | null = null;
+let syntaxThemeStorageReadFailure: ThemeStorageError | null = null;
 
 function emitChange() {
   snapshotStale = true;
@@ -232,6 +242,34 @@ export function writeThemePreference(theme: Theme): void {
   }
 }
 
+export function readSyntaxThemePreference(): SyntaxThemePreference {
+  if (typeof window === "undefined") return DEFAULT_SYNTAX_THEME_PREFERENCE;
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem(SYNTAX_THEME_STORAGE_KEY);
+  } catch (cause) {
+    throw new ThemeStorageError({
+      operation: "read",
+      storageKey: SYNTAX_THEME_STORAGE_KEY,
+      cause,
+    });
+  }
+  return isSyntaxThemePreference(raw) ? raw : DEFAULT_SYNTAX_THEME_PREFERENCE;
+}
+
+export function writeSyntaxThemePreference(syntaxTheme: SyntaxThemePreference): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SYNTAX_THEME_STORAGE_KEY, syntaxTheme);
+  } catch (cause) {
+    throw new ThemeStorageError({
+      operation: "write",
+      storageKey: SYNTAX_THEME_STORAGE_KEY,
+      cause,
+    });
+  }
+}
+
 function getStored(): Theme {
   if (themeStorageReadFailure !== null) {
     return DEFAULT_THEME_SNAPSHOT.theme;
@@ -253,6 +291,30 @@ function getStored(): Theme {
       ...safeErrorLogAttributes(error),
     });
     return DEFAULT_THEME_SNAPSHOT.theme;
+  }
+}
+
+function getStoredSyntaxTheme(): SyntaxThemePreference {
+  if (syntaxThemeStorageReadFailure !== null) {
+    return DEFAULT_SYNTAX_THEME_PREFERENCE;
+  }
+  try {
+    return readSyntaxThemePreference();
+  } catch (cause) {
+    const error = isThemeStorageError(cause)
+      ? cause
+      : new ThemeStorageError({
+          operation: "read",
+          storageKey: SYNTAX_THEME_STORAGE_KEY,
+          cause,
+        });
+    syntaxThemeStorageReadFailure = error;
+    console.error(error.message, {
+      operation: error.operation,
+      storageKey: error.storageKey,
+      ...safeErrorLogAttributes(error),
+    });
+    return DEFAULT_SYNTAX_THEME_PREFERENCE;
   }
 }
 
@@ -425,6 +487,7 @@ function getSnapshot(): ThemeSnapshot {
   const followSystem = appearanceMode === "system";
   const systemDark = followSystem ? getSystemDark() : false;
   const themeHalves = readStoredThemeHalves();
+  const syntaxTheme = getStoredSyntaxTheme();
 
   const resolvedTheme = resolveThemeAppearance(
     theme,
@@ -440,12 +503,21 @@ function getSnapshot(): ThemeSnapshot {
     lastSnapshot.systemDark === systemDark &&
     lastSnapshot.followSystem === followSystem &&
     lastSnapshot.appearanceMode === appearanceMode &&
-    themeHalvesSignature(lastSnapshot.themeHalves) === themeHalvesSignature(themeHalves)
+    themeHalvesSignature(lastSnapshot.themeHalves) === themeHalvesSignature(themeHalves) &&
+    lastSnapshot.syntaxTheme === syntaxTheme
   ) {
     return lastSnapshot;
   }
 
-  lastSnapshot = { theme, resolvedTheme, systemDark, followSystem, appearanceMode, themeHalves };
+  lastSnapshot = {
+    theme,
+    resolvedTheme,
+    systemDark,
+    followSystem,
+    appearanceMode,
+    themeHalves,
+    syntaxTheme,
+  };
   return lastSnapshot;
 }
 
@@ -472,8 +544,14 @@ function handleStorageChange(e: StorageEvent) {
   } else if (e.key === THEME_APPEARANCE_MODE_STORAGE_KEY || e.key === THEME_HALVES_STORAGE_KEY) {
     applyTheme(getStored(), { suppressTransitions: true });
     emitChange();
+  } else if (e.key === SYNTAX_THEME_STORAGE_KEY) {
+    syntaxThemeStorageReadFailure = null;
+    emitChange();
   } else if (e.key === CUSTOM_THEMES_STORAGE_KEY || e.key === null) {
-    if (e.key === null) themeStorageReadFailure = null;
+    if (e.key === null) {
+      themeStorageReadFailure = null;
+      syntaxThemeStorageReadFailure = null;
+    }
     invalidateCustomThemes();
     lastAppliedTheme = null;
     applyTheme(getStored(), { suppressTransitions: true });
@@ -651,6 +729,30 @@ export function useTheme() {
     return true;
   }, []);
 
+  const setSyntaxTheme = useCallback((nextSyntaxTheme: SyntaxThemePreference): boolean => {
+    if (typeof window === "undefined") return false;
+    try {
+      writeSyntaxThemePreference(nextSyntaxTheme);
+    } catch (cause) {
+      const error = isThemeStorageError(cause)
+        ? cause
+        : new ThemeStorageError({
+            operation: "write",
+            storageKey: SYNTAX_THEME_STORAGE_KEY,
+            cause,
+          });
+      console.error(error.message, {
+        operation: error.operation,
+        storageKey: error.storageKey,
+        ...safeErrorLogAttributes(error),
+      });
+      return false;
+    }
+    syntaxThemeStorageReadFailure = null;
+    emitChange();
+    return true;
+  }, []);
+
   const refreshTheme = useCallback(({ preservePreview = false } = {}) => {
     if (typeof window === "undefined") return;
     lastAppliedTheme = null;
@@ -670,10 +772,12 @@ export function useTheme() {
     setFollowSystem,
     setThemeHalf,
     clearThemeHalves,
+    setSyntaxTheme,
     refreshTheme,
     followSystem: snapshot.followSystem,
     appearanceMode: snapshot.appearanceMode,
     resolvedTheme,
     themeHalves: snapshot.themeHalves,
+    syntaxTheme: snapshot.syntaxTheme,
   } as const;
 }
