@@ -9,10 +9,21 @@ import { DialogPopup, DialogHeader, DialogTitle, DialogDescription, DialogFooter
 export function WizardPopup({
   children,
   className,
+  size = "default",
   ...props
-}: Omit<ComponentProps<typeof DialogPopup>, "style">) {
+}: Omit<ComponentProps<typeof DialogPopup>, "style"> & {
+  readonly size?: "default" | "wide";
+}) {
   return (
-    <DialogPopup {...props} className={cn("max-w-xl overflow-x-hidden overflow-y-auto", className)}>
+    <DialogPopup
+      {...props}
+      className={cn(
+        "overflow-x-hidden overflow-y-auto",
+        className,
+  size === "wide" ? "max-w-3xl" : "max-w-xl",
+        className,
+      )}
+    >
       <div className="flex min-h-0 flex-col">{children}</div>
     </DialogPopup>
   );

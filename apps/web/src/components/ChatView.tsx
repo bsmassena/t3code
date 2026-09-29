@@ -21,6 +21,7 @@ import {
   recallCheckoutIsRepo,
   rememberCheckoutIsRepo,
 } from "./ChatView.logic";
+import { isChatGptUsageLimitError } from "@t3tools/shared/usageLimits";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import {
@@ -10602,6 +10603,7 @@ export default function ChatView(props: ChatViewProps) {
                     ? (serverRuntime?.lastErrorClass ?? null)
                     : null
                 }
+                chatGptUsageLimit={isChatGptUsageLimitError(threadActivities, timelineThreadError)}
                 onDismiss={() => {
                   setThreadError(activeThread.id, null);
                   dismissThreadErrorBannerForSession(threadErrorBannerKey);
