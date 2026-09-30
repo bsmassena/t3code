@@ -31,6 +31,11 @@ const baseProviderSnapshot = {
 };
 
 describe("ServerProvider", () => {
+  it("preserves account identity while accepting snapshots from older servers", () => {
+    const auth = { status: "authenticated", email: "same@example.com", accountId: "personal" };
+    expect(decodeServerProvider({ ...baseProviderSnapshot, auth }).auth).toEqual(auth);
+    expect(decodeServerProvider(baseProviderSnapshot).auth.accountId).toBeUndefined();
+  });
   it("defaults capability arrays when decoding provider snapshots", () => {
     const parsed = decodeServerProvider({
       instanceId: "codex",

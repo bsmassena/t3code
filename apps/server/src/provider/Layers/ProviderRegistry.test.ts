@@ -402,6 +402,23 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
   "ProviderRegistry",
   (it) => {
     describe("checkCodexProviderStatus", () => {
+      it.effect("publishes the subscription identity returned with Codex limits", () =>
+        Effect.gen(function* () {
+          const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
+            Effect.succeed(
+              makeCodexProbeSnapshot({
+                rateLimits: {
+                  accountId: "personal-account",
+                  snapshot: { primary: { usedPercent: 41, windowDurationMins: 10080 } },
+                  resetCredits: undefined,
+                },
+              }),
+            ),
+          );
+          assert.strictEqual(status.auth.accountId, "personal-account");
+          assert.strictEqual(status.usageLimits?.windows[0]?.usedPercent, 41);
+        }),
+      );
       it.effect("uses the app-server account and model list for provider status", () =>
         Effect.gen(function* () {
           const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>

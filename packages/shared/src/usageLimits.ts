@@ -135,14 +135,32 @@ export function collectExternalUsageLinks(presentations: LimitPresentations) {
   return [...links.values()];
 }
 
-function accountKey(driver: ServerProvider["driver"], email: string | undefined): string | null {
-  const normalizedEmail = email?.trim().toLowerCase();
-  return normalizedEmail ? `${driver}:${normalizedEmail}` : null;
+function createAccountKey(providers: readonly ServerProvider[]) {
+  const identities = new Map<string, Set<string>>();
+  for (const provider of providers) {
+    const email = provider.auth.email?.trim().toLowerCase();
+    const id = provider.auth.accountId;
+    if (!email || !id) continue;
+    const key = `${provider.driver}:${email}`;
+    const ids = identities.get(key) ?? new Set<string>();
+    ids.add(id);
+    identities.set(key, ids);
+  }
+  return (driver: ServerProvider["driver"], email: string | undefined, accountId?: string) => {
+    if (accountId) return `${driver}:account:${accountId}`;
+    const normalizedEmail = email?.trim().toLowerCase();
+    if (!normalizedEmail) return null;
+    const key = `${driver}:${normalizedEmail}`;
+    const ids = identities.get(key);
+    // Older servers and hubs identify accounts by email only. Match them to a
+    // known identity only when that email names exactly one subscription.
+    return ids?.size === 1 ? `${driver}:account:${[...ids][0]}` : key;
+  };
 }
 
 /**
  * One subscription account as the pooled views see it, whichever way it was
- * reported. The same email signed in natively on two environments, or reported
+ * reported. The same provider account signed in on two environments, or reported
  * by a hub as well as natively, is one account: its quota is one bucket, so
  * counting it twice would misstate what is left.
  */
@@ -175,6 +193,11 @@ export interface LimitAccount {
  * native instances supply names and environment labels.
  */
 export function collectLimitAccounts(presentations: LimitPresentations): readonly LimitAccount[] {
+  const accountKey = createAccountKey(
+    [...presentations.values()].flatMap((presentation) =>
+      providersWithLimits(presentation.serverConfig?.providers ?? []),
+    ),
+  );
   const accounts = new Map<string, LimitAccount>();
   const creditSources = new Map<string, LimitAccount>();
   const hubRedeems = new Map<string, LimitAccount>();
@@ -242,7 +265,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
     for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
       if (!provider.usageLimits || limitsNotice(provider.usageLimits) !== null) continue;
       merge(
-        accountKey(provider.driver, provider.auth.email) ??
+        accountKey(provider.driver, provider.auth.email, provider.auth.accountId) ??
           `${environmentId}:${provider.instanceId}`,
         {
           key: `${environmentId}:${provider.instanceId}`,
@@ -644,9 +667,10 @@ export function collectProviderUsageLimits(
   const native = providersWithLimits(providers).filter(
     (provider) => provider.driver === selected.driver,
   );
+  const accountKey = createAccountKey(native);
   const nativeAccounts = new Set(
     native.flatMap((provider) => {
-      const key = accountKey(provider.driver, provider.auth.email);
+      const key = accountKey(provider.driver, provider.auth.email, provider.auth.accountId);
       return key && provider.usageLimits?.windows.length && !provider.usageLimits.unavailable
         ? [key]
         : [];
@@ -656,7 +680,7 @@ export function collectProviderUsageLimits(
   const notices: string[] = [];
   for (const provider of native) {
     if (!provider.usageLimits) continue;
-    const key = accountKey(provider.driver, provider.auth.email);
+    const key = accountKey(provider.driver, provider.auth.email, provider.auth.accountId);
     const hubCredits = sources
       .flatMap((source) => source.accounts.map((account) => ({ source, account })))
       .filter(

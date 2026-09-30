@@ -150,11 +150,78 @@ describe("pools", () => {
   };
   const laptop = { entry: { target: { label: "Laptop" } } };
 
+  it("separates subscriptions with the same email and merges the same identity across environments", () => {
+    const personal = provider({
+      instanceId: ProviderInstanceId.make("personal"),
+      auth: { status: "authenticated", email: "same@example.com", accountId: "personal-account" },
+      usageLimits: { checkedAt, windows: [{ ...weekly, usedPercent: 41 }] },
+    });
+    const team = provider({
+      instanceId: ProviderInstanceId.make("team"),
+      auth: { ...personal.auth, accountId: "team-account" },
+      usageLimits: { checkedAt, windows: [{ ...weekly, usedPercent: 17 }] },
+    });
+    const input = new Map([
+      [EnvironmentId.make("env-a"), { ...laptop, serverConfig: { providers: [personal, team] } }],
+      [
+        EnvironmentId.make("env-b"),
+        {
+          ...laptop,
+          serverConfig: {
+            providers: [
+              {
+                ...personal,
+                instanceId: ProviderInstanceId.make("codex"),
+                usageLimits: {
+                  checkedAt: "2026-09-03T11:30:00.000Z",
+                  windows: [{ ...weekly, usedPercent: 42 }],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    ]);
+    const accounts = collectLimitAccounts(input);
+    expect(accounts).toHaveLength(2);
+    expect(accounts.map((account) => account.limits.windows[0]?.usedPercent)).toEqual([42, 17]);
+    expect(accounts[0]?.environments).toHaveLength(2);
+    expect(accounts[1]?.environments).toHaveLength(1);
+  });
+
+  it("matches legacy email-only reports only to an unambiguous subscription", () => {
+    const known = provider({
+      auth: { status: "authenticated", email: "Same@example.com", accountId: "personal" },
+      usageLimits: { checkedAt, windows: [window] },
+    });
+    const legacy = {
+      ...known,
+      instanceId: ProviderInstanceId.make("legacy"),
+      auth: { status: "authenticated" as const, email: "same@example.com" },
+    };
+    const input = new Map([
+      [
+        EnvironmentId.make("env-a"),
+        {
+          ...laptop,
+          serverConfig: { providers: [known, legacy] },
+        },
+      ],
+    ]);
+    expect(collectLimitAccounts(input)).toHaveLength(1);
+    input.get(EnvironmentId.make("env-a"))!.serverConfig.providers.push({
+      ...known,
+      instanceId: ProviderInstanceId.make("team"),
+      auth: { ...known.auth, accountId: "team" },
+    });
+    expect(collectLimitAccounts(input)).toHaveLength(3);
+  });
+
   it("merges one account reported natively on two environments and by a hub into one entry", () => {
     const native = provider({
       driver: claude,
       instanceId: ProviderInstanceId.make("claude"),
-      auth: { status: "authenticated", email: "Same@example.com" },
+      auth: { status: "authenticated", email: "Same@example.com", accountId: "shared-account" },
       usageLimits: { checkedAt, windows: [{ ...window, usedPercent: 40 }] },
     });
     const input = new Map([
