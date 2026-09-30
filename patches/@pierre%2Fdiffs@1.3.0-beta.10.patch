@@ -1,3 +1,15 @@
+diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
+index dfabd4963697284d5ea70812bca010efa5cce9b3..f77f86f9cc4ece54cf00ea71316e9b3e536be0ca 100644
+--- a/dist/components/CodeView.js
++++ b/dist/components/CodeView.js
+@@ -1630,6 +1630,7 @@ var CodeView = class CodeView {
+ 		if (heightChanged && currentTop != null) {
+ 			this.scrollDirty = true;
+ 			this.scrollHeight = currentTop;
++			this.syncContainerHeight();
+ 		}
+ 	}
+ 	updateStickyPositioning() {
 diff --git a/dist/components/VirtualizedFile.d.ts b/dist/components/VirtualizedFile.d.ts
 --- a/dist/components/VirtualizedFile.d.ts
 +++ b/dist/components/VirtualizedFile.d.ts
