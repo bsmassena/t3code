@@ -19,8 +19,7 @@ export function WizardPopup({
       {...props}
       className={cn(
         "overflow-x-hidden overflow-y-auto",
-        className,
-  size === "wide" ? "max-w-3xl" : "max-w-xl",
+        size === "wide" ? "max-w-3xl" : "max-w-xl",
         className,
       )}
     >

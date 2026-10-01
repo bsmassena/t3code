@@ -51,6 +51,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -665,6 +666,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     );
 
   const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const providerAdapters = yield* ProviderAdapterRegistryV2;
   const continuationRequests = yield* ProviderContinuationRequests;
   const providerSessions = yield* ProviderSessionManagerV2;
@@ -3602,17 +3604,45 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           });
         });
 
+      // A selection the provider applies on its next turn restarts the run when
+      // the provider can restart it. Otherwise the steer joins the running turn
+      // and the selection waits for the next one, rather than failing the steer.
+      const turnCapabilities = session.providerSession.capabilities.turns;
+      const selectionMustApplyNow =
+        selectionChanged &&
+        (providerInstanceChanged || selectionTransition?.type !== "apply_on_next_turn");
       const steeringPolicy = yield* enforceCommandPolicy(input.command)(
         commandPolicy.decideSteeringExecution({
           commandId: input.command.commandId,
           threadId: input.command.threadId,
           providerInstanceId: targetRun.providerInstanceId,
           capabilities: session.providerSession.capabilities,
-          forceRestart: input.forceRestart || selectionChanged,
+          forceRestart:
+            input.forceRestart ||
+            selectionMustApplyNow ||
+            (selectionChanged &&
+              turnCapabilities.supportsInterrupt &&
+              turnCapabilities.supportsSteeringByInterruptRestart),
         }),
       );
 
       if (steeringPolicy === "active_steering") {
+        if (
+          selectionChanged &&
+          !modelSelectionsEqual(input.projection.thread.modelSelection, input.modelSelection)
+        ) {
+          yield* emitEvent({
+            type: "thread.model-selection-updated",
+            threadId: input.command.threadId,
+            providerInstanceId: input.modelSelection.instanceId,
+            occurredAt: now,
+            payload: {
+              ...input.projection.thread,
+              modelSelection: input.modelSelection,
+              updatedAt: now,
+            },
+          });
+        }
         yield* appendSteeringMessage({
           runId: targetRun.id,
           nodeId: rootNodeId,
@@ -7909,6 +7939,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       if (command.restoreFiles !== false) {
         const isolated = yield* isCheckpointRestoreIsolated(projection.thread, targetScope, {
+          projects,
+          path,
           fileSystem,
           projections: projectionStore,
         }).pipe(
@@ -9453,6 +9485,7 @@ export const layer: Layer.Layer<
   never,
   | CheckpointServiceV2
   | FileSystem.FileSystem
+  | Path.Path
   | CommandPolicyV2
   | CommandReceiptStoreV2
   | ContextHandoffServiceV2

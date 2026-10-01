@@ -1124,7 +1124,7 @@ export function ProviderInstanceCard({
             {runtime ?? runtimeFields}
           </FoldedSettingsSection>
         </div>
-      ) : (
+      ) : !driverOption || deriveProviderSettingsFields(driverOption).length > 0 ? (
         <SettingsSection
           title="Runtime"
           inert={readOnly}
@@ -1133,7 +1133,7 @@ export function ProviderInstanceCard({
         >
           {runtimeFields}
         </SettingsSection>
-      )}
+      ) : null}
 
       <SettingsSection
         title="Environment"

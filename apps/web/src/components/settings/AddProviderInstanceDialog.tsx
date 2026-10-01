@@ -336,7 +336,7 @@ export function AddProviderInstanceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <WizardPopup size="wide">
         <WizardHeader
-          title="Add provider instance"
+          title="Add provider"
           description={<>Add an account or configure a provider on {environmentLabel}.</>}
         >
           {isAcpRegistry ? (
@@ -611,7 +611,7 @@ export function AddProviderInstanceDialog({
 
             <WizardFooter>
               <Button
-                variant="outline"
+                variant={wizardStep === 0 ? "ghost-muted" : "outline"}
                 size="sm"
                 disabled={isSaving || isPreparingRegistryAgent}
                 onClick={() => {
@@ -626,8 +626,13 @@ export function AddProviderInstanceDialog({
               </Button>
               {wizardStep === 0 && driver === "codex" ? (
                 <>
-                  <Button variant="outline" onClick={() => navigateToStep(1)}>Configure manually</Button>
-                  <ChatGptConnectionButton onClick={() => setAddingChatGptAccount(true)} />
+                  <Button variant="outline" size="sm" onClick={() => navigateToStep(1)}>
+                    Configure manually
+                  </Button>
+                  <ChatGptConnectionButton
+                    size="sm"
+                    onClick={() => setAddingChatGptAccount(true)}
+                  />
                 </>
               ) : wizardStep < (isAcpRegistry ? 1 : 2) ? (
                 <Button
