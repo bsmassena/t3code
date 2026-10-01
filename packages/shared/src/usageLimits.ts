@@ -123,10 +123,18 @@ function createAccountKey(providers: readonly ServerProvider[]) {
     ids.add(id);
     identities.set(key, ids);
   }
-  return (driver: ServerProvider["driver"], email: string | undefined, limits?: ServerProviderUsageLimits, accountId?: string) => {
+  return (
+    driver: ServerProvider["driver"],
+    email: string | undefined,
+    limits?: ServerProviderUsageLimits,
+    accountId?: string,
+  ) => {
     if (accountId) return `${driver}:account:${accountId}`;
     const normalizedEmail = email?.trim().toLowerCase();
-    if (!normalizedEmail) return limits?.credentialFingerprint ? `${driver}:credential:${limits.credentialFingerprint}` : null;
+    if (!normalizedEmail)
+      return limits?.credentialFingerprint
+        ? `${driver}:credential:${limits.credentialFingerprint}`
+        : null;
     const key = `${driver}:${normalizedEmail}`;
     const ids = identities.get(key);
     // Older servers and hubs identify accounts by email only. Match them to a
@@ -242,8 +250,12 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
     for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
       if (!provider.usageLimits || limitsNotice(provider.usageLimits) !== null) continue;
       merge(
-        accountKey(provider.driver, provider.auth.email, provider.usageLimits, provider.auth.accountId) ??
-          `${environmentId}:${provider.instanceId}`,
+        accountKey(
+          provider.driver,
+          provider.auth.email,
+          provider.usageLimits,
+          provider.auth.accountId,
+        ) ?? `${environmentId}:${provider.instanceId}`,
         {
           key: `${environmentId}:${provider.instanceId}`,
           driver: provider.driver,
@@ -651,7 +663,12 @@ export function collectProviderUsageLimits(
   const accountKey = createAccountKey(native);
   const nativeAccounts = new Set(
     native.flatMap((provider) => {
-      const key = accountKey(provider.driver, provider.auth.email, provider.usageLimits, provider.auth.accountId);
+      const key = accountKey(
+        provider.driver,
+        provider.auth.email,
+        provider.usageLimits,
+        provider.auth.accountId,
+      );
       return key && provider.usageLimits?.windows.length && !provider.usageLimits.unavailable
         ? [key]
         : [];
@@ -661,7 +678,12 @@ export function collectProviderUsageLimits(
   const notices: string[] = [];
   for (const provider of native) {
     if (!provider.usageLimits) continue;
-    const key = accountKey(provider.driver, provider.auth.email, provider.usageLimits, provider.auth.accountId);
+    const key = accountKey(
+      provider.driver,
+      provider.auth.email,
+      provider.usageLimits,
+      provider.auth.accountId,
+    );
     const hubCredits = sources
       .flatMap((source) => source.accounts.map((account) => ({ source, account })))
       .filter(

@@ -1,4 +1,3 @@
-import type * as Scope from "effect/Scope";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
