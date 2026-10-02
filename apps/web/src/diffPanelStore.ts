@@ -44,7 +44,11 @@ interface DiffPanelStoreState {
   toggleDiffFileExpanded: (scopeKey: string, fileKey: string) => void;
   setExpandedDiffFileKeys: (scopeKey: string, fileKeys: ReadonlyArray<string>) => void;
   toggleDiffFileViewed: (scopeKey: string, fileKey: string) => void;
-  reconcileDiffFileUiState: (scopeKey: string, fileKeys: ReadonlyArray<string>) => void;
+  reconcileDiffFileUiState: (
+    scopeKey: string,
+    fileKeys: ReadonlyArray<string>,
+    complete?: boolean,
+  ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -185,8 +189,10 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
-      reconcileDiffFileUiState: (scopeKey, fileKeys) =>
+      reconcileDiffFileUiState: (scopeKey, fileKeys, complete = true) =>
         set((state) => {
+          // Pending patches have placeholder fingerprints, not the saved content keys.
+          if (!complete) return state;
           const current = state.diffFileUiStateByScopeKey[scopeKey];
           if (!current) return state;
 

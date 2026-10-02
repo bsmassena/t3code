@@ -165,4 +165,32 @@ describe("diffPanelStore", () => {
       viewedFileKeys: [unchangedKey],
     });
   });
+  it("preserves later batches until all file fingerprints are loaded", () => {
+    const scopeKey = `${THREAD_REF.environmentId}:${THREAD_REF.threadId}:branch`;
+    const store = useDiffPanelStore.getState();
+    store.toggleDiffFileViewed(scopeKey, "first:content");
+    store.toggleDiffFileViewed(scopeKey, "later:content");
+    store.toggleDiffFileExpanded(scopeKey, "later:content");
+    store.toggleDiffFileViewed(scopeKey, "changed:old");
+
+    store.reconcileDiffFileUiState(
+      scopeKey,
+      ["first:content", "later:pending", "changed:pending"],
+      false,
+    );
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
+      expandedFileKeys: ["later:content"],
+      viewedFileKeys: ["first:content", "later:content", "changed:old"],
+    });
+
+    store.reconcileDiffFileUiState(
+      scopeKey,
+      ["first:content", "later:content", "changed:new"],
+      true,
+    );
+    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
+      expandedFileKeys: ["later:content"],
+      viewedFileKeys: ["first:content", "later:content"],
+    });
+  });
 });

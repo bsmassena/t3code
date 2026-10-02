@@ -162,24 +162,9 @@ const DIFF_PANEL_HEADER_UNSAFE_CSS = `
   order: 2;
 }
 
-[data-diffs-header] [data-additions-count] {
-  order: 3;
-}
-
+[data-diffs-header] [data-additions-count],
 [data-diffs-header] [data-deletions-count] {
-  order: 4;
-}
-
-[data-diffs-header]:not(:has([data-additions-count])) [data-deletions-count]::before {
-  content: "+0";
-  color: var(--diffs-addition-base);
-  margin-right: 1ch;
-}
-
-[data-diffs-header]:not(:has([data-deletions-count])) [data-additions-count]::after {
-  content: "-0";
-  color: var(--diffs-deletion-base);
-  margin-left: 1ch;
+  display: none;
 }
 
 [data-diffs-header] slot[name="header-filename-suffix"] {
@@ -211,10 +196,9 @@ const DIFF_PANEL_HEADER_UNSAFE_CSS = `
   --diff-mark-as-viewed-pointer-events: none;
 }
 
-[data-diffs-header]:not(:hover):not(:focus-within)
-  slot[name="header-filename-suffix"]::slotted(*) {
-  pointer-events: none;
-  opacity: 0;
+[data-diffs-header]:not(:hover):not(:focus-within) slot[name="header-filename-suffix"] {
+  --diff-file-action-opacity: 0;
+  --diff-file-action-pointer-events: none;
 }
 
 [data-diffs-header] [data-title] {
@@ -821,8 +805,14 @@ export default function DiffPanel({
 
   useEffect(() => {
     if (!collapseScopeKey || diffFileUiStateKeys.length === 0) return;
-    useDiffPanelStore.getState().reconcileDiffFileUiState(collapseScopeKey, diffFileUiStateKeys);
-  }, [collapseScopeKey, diffFileUiStateKeys]);
+    useDiffPanelStore
+      .getState()
+      .reconcileDiffFileUiState(
+        collapseScopeKey,
+        diffFileUiStateKeys,
+        !lazySource || renderableFiles.every((file) => !file.cacheKey?.endsWith(":pending")),
+      );
+  }, [collapseScopeKey, diffFileUiStateKeys, lazySource, renderableFiles]);
 
   useEffect(() => {
     if (!selectedDiffFileKey) return;
@@ -1144,7 +1134,7 @@ export default function DiffPanel({
                 <ArrowRightIcon className="size-3.5 shrink-0 opacity-70" />
               </TooltipTrigger>
               <TooltipPopup side="top">
-                {`${selectedGitSource.headRef ?? "HEAD"} → ${selectedGitSource.baseRef}`}
+                {`${selectedGitSource.headRef ?? "HEAD"} Ã¢â€ â€™ ${selectedGitSource.baseRef}`}
               </TooltipPopup>
             </Tooltip>
             <Combobox
@@ -1272,7 +1262,7 @@ export default function DiffPanel({
               <RefreshIcon size="sm" refreshing={isRefreshingDiff} />
             </TooltipTrigger>
             <TooltipPopup side="top">
-              {isRefreshingDiff ? "Refreshing diff…" : "Refresh diff"}
+              {isRefreshingDiff ? "Refreshing diffÃ¢â‚¬Â¦" : "Refresh diff"}
             </TooltipPopup>
           </Tooltip>
         )}
@@ -1594,6 +1584,7 @@ export default function DiffPanel({
                       const filePath = resolveFileDiffPath(fileDiff);
                       const uiStateKey = uiStateKeyByRenderKey.get(fileKey);
                       if (!uiStateKey) return null;
+                      const stat = fileStats.get(filePath) ?? getDiffLineStat([fileDiff]);
                       const previousFilePath = resolveFileDiffPreviousPath(fileDiff);
                       const fileActions = supportsLocalGitSources
                         ? resolveDiffFileActions({
@@ -1603,63 +1594,70 @@ export default function DiffPanel({
                           })
                         : [];
                       return (
-                        <div className="flex items-center gap-1 transition-opacity duration-100">
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <button
-                                  type="button"
-                                  className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                                  aria-label={`Open ${filePath} in a tab`}
-                                  data-diff-header-action="open-file"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    openDiffFile(filePath);
-                                  }}
-                                />
-                              }
-                            >
-                              <ExternalLinkIcon className="size-3.5" />
-                            </TooltipTrigger>
-                            <TooltipPopup side="top">Open file in a tab</TooltipPopup>
-                          </Tooltip>
-                          {fileActions.includes("revert") && (
-                            <DiffHeaderActionButton
-                              label="Revert file"
-                              disabled={pendingFileActionKey !== null}
-                              onClick={() =>
-                                void runFileAction(
-                                  selectedGitScope === "staged" ? "revert-staged" : "revert",
-                                  filePath,
-                                  previousFilePath,
-                                )
-                              }
-                            >
-                              <Undo2Icon className="size-3.5" />
-                            </DiffHeaderActionButton>
-                          )}
-                          {fileActions.includes("stage") && (
-                            <DiffHeaderActionButton
-                              label="Stage file"
-                              disabled={pendingFileActionKey !== null}
-                              onClick={() =>
-                                void runFileAction("stage", filePath, previousFilePath)
-                              }
-                            >
-                              <PlusIcon className="size-3.5" />
-                            </DiffHeaderActionButton>
-                          )}
-                          {fileActions.includes("unstage") && (
-                            <DiffHeaderActionButton
-                              label="Unstage file"
-                              disabled={pendingFileActionKey !== null}
-                              onClick={() =>
-                                void runFileAction("unstage", filePath, previousFilePath)
-                              }
-                            >
-                              <MinusIcon className="size-3.5" />
-                            </DiffHeaderActionButton>
-                          )}
+                        <div className="flex items-center gap-1">
+                          <DiffStatLabel
+                            additions={stat.additions}
+                            deletions={stat.deletions}
+                            layout="inline"
+                          />
+                          <div className="flex items-center gap-1 opacity-(--diff-file-action-opacity,1) transition-opacity duration-100 [pointer-events:var(--diff-file-action-pointer-events,auto)]">
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <button
+                                    type="button"
+                                    className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                                    aria-label={`Open ${filePath} in a tab`}
+                                    data-diff-header-action="open-file"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openDiffFile(filePath);
+                                    }}
+                                  />
+                                }
+                              >
+                                <ExternalLinkIcon className="size-3.5" />
+                              </TooltipTrigger>
+                              <TooltipPopup side="top">Open file in a tab</TooltipPopup>
+                            </Tooltip>
+                            {fileActions.includes("revert") && (
+                              <DiffHeaderActionButton
+                                label="Revert file"
+                                disabled={pendingFileActionKey !== null}
+                                onClick={() =>
+                                  void runFileAction(
+                                    selectedGitScope === "staged" ? "revert-staged" : "revert",
+                                    filePath,
+                                    previousFilePath,
+                                  )
+                                }
+                              >
+                                <Undo2Icon className="size-3.5" />
+                              </DiffHeaderActionButton>
+                            )}
+                            {fileActions.includes("stage") && (
+                              <DiffHeaderActionButton
+                                label="Stage file"
+                                disabled={pendingFileActionKey !== null}
+                                onClick={() =>
+                                  void runFileAction("stage", filePath, previousFilePath)
+                                }
+                              >
+                                <PlusIcon className="size-3.5" />
+                              </DiffHeaderActionButton>
+                            )}
+                            {fileActions.includes("unstage") && (
+                              <DiffHeaderActionButton
+                                label="Unstage file"
+                                disabled={pendingFileActionKey !== null}
+                                onClick={() =>
+                                  void runFileAction("unstage", filePath, previousFilePath)
+                                }
+                              >
+                                <MinusIcon className="size-3.5" />
+                              </DiffHeaderActionButton>
+                            )}
+                          </div>
                         </div>
                       );
                     }}
@@ -1673,12 +1671,6 @@ export default function DiffPanel({
                         (selectedGitScope !== "staged" && selectedGitScope !== "unstaged");
                       return (
                         <div className="flex shrink-0 items-center gap-1 pr-2">
-                          {fileStats.has(filePath) ? (
-                            <DiffStatLabel
-                              additions={fileStats.get(filePath)!.additions}
-                              deletions={fileStats.get(filePath)!.deletions}
-                            />
-                          ) : null}
                           {canToggleViewed && (
                             <button
                               type="button"
