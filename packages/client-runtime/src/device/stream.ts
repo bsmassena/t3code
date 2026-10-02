@@ -888,7 +888,6 @@ export function createDeviceStreamClient(
           closeDecoder();
           configuring = false;
           connecting();
-          requestKeyframe();
         }
         return;
       }
@@ -909,7 +908,11 @@ export function createDeviceStreamClient(
             if (!isCurrent() || epoch !== decoderEpoch) return;
             configuring = false;
             awaitingKeyframe = true;
-            if (configured) requestKeyframe();
+            // scrcpy restarts the video session on reset; consume its first keyframe.
+            if (configured) {
+              if (isKey) decode(true, packet.data, packet.timestamp);
+              else requestKeyframe();
+            }
           },
         );
         return;

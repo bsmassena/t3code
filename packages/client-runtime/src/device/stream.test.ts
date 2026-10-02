@@ -619,6 +619,28 @@ describe("shared device stream readiness and recovery", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("presents the first Android keyframe without restarting the scrcpy session", async () => {
+    const { client, sockets, sps, Decoder, decodedFrame, drawImage, events } =
+      recoveryFixture("android");
+    vi.spyOn(Decoder.prototype, "decode").mockImplementation(() => {
+      decodedFrame();
+    });
+    client.start();
+    sockets[0]!.onopen?.();
+    for (const size of [
+      { width: 400, height: 800 },
+      { width: 800, height: 400 },
+    ]) {
+      sockets[0]!.onmessage?.({ data: JSON.stringify({ type: "video-session", size }) });
+      sockets[0]!.onmessage?.({ data: sps });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(events.onStatus).toHaveBeenLastCalledWith("streaming", undefined);
+    }
+    expect(drawImage).toHaveBeenCalledTimes(2);
+    expect(sockets[0]!.send).not.toHaveBeenCalled();
+    client.stop();
+  });
+
   it("waits for decoded Android output and bounds a rotation that never produces another frame", async () => {
     const { client, sockets, sps, events, decodedFrame, drawImage } = recoveryFixture("android");
     client.start();
