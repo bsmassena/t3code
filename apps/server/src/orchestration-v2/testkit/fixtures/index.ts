@@ -28,6 +28,8 @@ import { claudeIdleResumeInput } from "./claude_idle_resume/input.ts";
 import { assertClaudeIdleResumeOutput } from "./claude_idle_resume/output.ts";
 import { claudeLocalBashTaskInput } from "./claude_local_bash_task/input.ts";
 import { assertClaudeLocalBashTaskOutput } from "./claude_local_bash_task/output.ts";
+import { claudeNestedBackgroundSubagentWakeInput } from "./claude_nested_background_subagent_wake/input.ts";
+import { assertClaudeNestedBackgroundSubagentWakeOutput } from "./claude_nested_background_subagent_wake/output.ts";
 import { claudeNestedSubagentModelInput } from "./claude_nested_subagent_model/input.ts";
 import { assertClaudeNestedSubagentModelOutput } from "./claude_nested_subagent_model/output.ts";
 import { claudeResultIsErrorInput } from "./claude_result_is_error/input.ts";
@@ -85,6 +87,8 @@ import { openCode2NestedBackgroundInput } from "./opencode2_nested_background/in
 import { assertOpenCode2NestedBackgroundOutput } from "./opencode2_nested_background/output.ts";
 import { openCode2SubagentInput } from "./opencode2_subagent/input.ts";
 import { assertOpenCode2SubagentOutput } from "./opencode2_subagent/output.ts";
+import { openCode2ResumeAfterRestartInput } from "./opencode2_resume_after_restart/input.ts";
+import { assertOpenCode2ResumeAfterRestartOutput } from "./opencode2_resume_after_restart/output.ts";
 import { openCode2SimpleInput } from "./opencode2_simple/input.ts";
 import { openCode2SkillInput } from "./opencode2_skill/input.ts";
 import { assertOpenCode2SkillOutput } from "./opencode2_skill/output.ts";
@@ -155,6 +159,11 @@ import {
   assertToolCallReadOnlyOnRequestOutput,
 } from "./tool_call_read_only_on_request/output.ts";
 import { toolCallReadOnlyOnRequestInput } from "./tool_call_read_only_on_request/input.ts";
+import {
+  stopBackgroundWorkAfterFailedTurnInput,
+  stopBackgroundWorkAfterReleaseInput,
+} from "./stop_background_work_after_failed_turn/input.ts";
+import { assertStopBackgroundWorkAfterFailedTurnOutput } from "./stop_background_work_after_failed_turn/output.ts";
 import { assertToolCallRestrictedGranularClaudeOutput } from "./tool_call_restricted_granular/claude_output.ts";
 import { assertToolCallRestrictedGranularOutput } from "./tool_call_restricted_granular/codex_output.ts";
 import { toolCallRestrictedGranularInput } from "./tool_call_restricted_granular/input.ts";
@@ -378,6 +387,22 @@ export const ORCHESTRATOR_REPLAY_FIXTURES: ReadonlyArray<OrchestratorReplayFixtu
         ),
         modelSelection: CLAUDE_MODEL_SELECTION,
         assertOutput: assertClaudeLocalBashTaskOutput,
+      },
+    ],
+  },
+  {
+    name: "claude_nested_background_subagent_wake",
+    buildInput: claudeNestedBackgroundSubagentWakeInput,
+    providers: [
+      {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        transcriptFile: new URL(
+          "./claude_nested_background_subagent_wake/claude_transcript.ndjson",
+          import.meta.url,
+        ),
+        modelSelection: CLAUDE_MODEL_SELECTION,
+        runContinuationWorker: true,
+        assertOutput: assertClaudeNestedBackgroundSubagentWakeOutput,
       },
     ],
   },
@@ -1042,6 +1067,24 @@ export const ORCHESTRATOR_REPLAY_FIXTURES: ReadonlyArray<OrchestratorReplayFixtu
       },
     ],
   },
+  {
+    name: "opencode2_resume_after_restart",
+    buildInput: openCode2ResumeAfterRestartInput,
+    providers: [
+      {
+        driver: ProviderDriverKind.make("opencode"),
+        transcriptFile: new URL(
+          "./opencode2_resume_after_restart/opencode_transcript.ndjson",
+          import.meta.url,
+        ),
+        modelSelection: {
+          instanceId: OPENCODE2_MODEL_SELECTION.instanceId,
+          model: "opencode/big-pickle",
+        },
+        assertOutput: assertOpenCode2ResumeAfterRestartOutput,
+      },
+    ],
+  },
   // Recorded live against 2.0.18 on OpenRouter with the workspace's own command and skill.
   ...(
     [
@@ -1526,6 +1569,37 @@ export const ORCHESTRATOR_REPLAY_FIXTURES: ReadonlyArray<OrchestratorReplayFixtu
         modelSelection: CODEX_MODEL_SELECTION,
         runtimePolicyOverride: WORKSPACE_NEVER_POLICY,
         assertOutput: assertThreadRollbackToStoppedTurnOutput,
+      },
+    ],
+  },
+  {
+    name: "stop_background_work_after_failed_turn",
+    buildInput: stopBackgroundWorkAfterFailedTurnInput,
+    providers: [
+      {
+        driver: ProviderDriverKind.make("acpRegistry"),
+        transcriptFile: new URL(
+          "./stop_background_work_after_failed_turn/registry_transcript.ndjson",
+          import.meta.url,
+        ),
+        modelSelection: ACP_REGISTRY_MODEL_SELECTION,
+        assertOutput: assertStopBackgroundWorkAfterFailedTurnOutput,
+      },
+    ],
+  },
+  {
+    name: "stop_background_work_after_release",
+    buildInput: stopBackgroundWorkAfterReleaseInput,
+    providers: [
+      {
+        driver: ProviderDriverKind.make("acpRegistry"),
+        transcriptFile: new URL(
+          "./stop_background_work_after_failed_turn/registry_transcript.ndjson",
+          import.meta.url,
+        ),
+        recordedScenario: "stop_background_work_after_failed_turn",
+        modelSelection: ACP_REGISTRY_MODEL_SELECTION,
+        assertOutput: assertStopBackgroundWorkAfterFailedTurnOutput,
       },
     ],
   },

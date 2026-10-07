@@ -904,6 +904,13 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_queue_read",
 ];
 
+// Claude Code aborts an HTTP MCP call after 60 s ("The operation timed out.")
+// unless the server config sets `timeout`. T3's wait tools (t3_thread_wait,
+// delegate_task mode=wait) legitimately block for up to an hour
+// (MAX_WAIT_TIMEOUT_MS in OrchestratorMcpService), so the budget sits just
+// above that and the server's own wait timeout is what ends a long call.
+export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
+
 // The SDK's `allowedTools` only pre-approves tool calls; availability is the
 // separate `tools` option. Attaching the t3-code MCP server therefore always
 // pre-approves its tools (headless modes like `dontAsk` deny anything that is
@@ -934,6 +941,7 @@ export function claudeMcpQueryOverrides(input: {
         headers: {
           Authorization: session.authorizationHeader,
         },
+        timeout: CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
       },
     },
   };
@@ -2943,6 +2951,11 @@ export function makeClaudeAdapterV2(
         }>({ userTurns: new Map(), reports: new Map() });
         // Subagents Claude started in the background. Only their ends wake the root.
         const backgroundedSubagentTaskIds = yield* Ref.make<ReadonlySet<string>>(new Set());
+        // Subagents another subagent started (spawn_depth above 1). Claude
+        // reports their end to the owning subagent, so it never wakes the root.
+        const nestedSubagentTaskIds = yield* Ref.make<ReadonlySet<string>>(new Set());
+        const isNestedSubagentTask = (taskId: string) =>
+          Ref.get(nestedSubagentTaskIds).pipe(Effect.map((ids) => ids.has(taskId)));
         const recordWakeReport = (
           nativeThreadId: string,
           taskId: string,
@@ -4893,9 +4906,17 @@ export function makeClaudeAdapterV2(
             ));
           const bufferedMessages =
             (yield* Ref.get(wakeBuffers)).get(wakeInput.nativeThreadId)?.messages ?? [];
+          // A nested subagent's end goes to the subagent that started it, not
+          // the root. It is buffered so the next drain completes its card, but
+          // it is not a wake.
+          const isNestedSubagentNotification =
+            isNotification &&
+            !isPendingTaskNotification &&
+            (yield* isNestedSubagentTask(message.task_id));
           const isPendingSubagentNotification =
             isNotification &&
             !isPendingTaskNotification &&
+            !isNestedSubagentNotification &&
             ((yield* Ref.get(sessionSubagentsByTaskId)).get(message.task_id)?.task.status ===
               "running" ||
               bufferedMessages.some(
@@ -4954,6 +4975,7 @@ export function makeClaudeAdapterV2(
           const isWakeEvidence =
             isPendingTaskNotification ||
             isPendingSubagentNotification ||
+            isNestedSubagentNotification ||
             isKnownSubagentTaskStarted ||
             isNewSubagentTaskStarted ||
             message.type === "assistant" ||
@@ -5016,13 +5038,17 @@ export function makeClaudeAdapterV2(
           // assistant, or result output proves that Claude actually began the
           // wake turn. Subagent notifications retain their existing immediate
           // offer because their projected lifecycle owns the continuation.
+          // Only root output proves it: a background subagent keeps streaming
+          // its own frames while the root is idle.
           const buffered = (yield* Ref.get(wakeBuffers)).get(wakeInput.nativeThreadId);
           const hasBufferedNotification =
             buffered?.messages.some(
               (entry) => entry.type === "system" && entry.subtype === "task_notification",
             ) ?? false;
           const isNativeOpaqueWakeFrame =
-            hasBufferedNotification && (message.type === "assistant" || message.type === "user");
+            hasBufferedNotification &&
+            (message.type === "assistant" || message.type === "user") &&
+            parentToolUseIdFromSdkMessage(message) === null;
           if (
             !isPendingSubagentNotification &&
             !isNativeOpaqueWakeFrame &&
@@ -5190,6 +5216,17 @@ export function makeClaudeAdapterV2(
           // Before any routing: a Monitor started during an idle wake turn
           // reports its task before the drain replays the tool call.
           yield* trackClaudeMonitorCalls(message);
+          // Before routing too: the wake gate reads it while the root is idle.
+          if (
+            message.type === "system" &&
+            message.subtype === "task_started" &&
+            !isClaudeNonSubagentTask(message) &&
+            (message.spawn_depth ?? 1) > 1
+          ) {
+            yield* Ref.update(nestedSubagentTaskIds, (current) =>
+              current.has(message.task_id) ? current : new Set(current).add(message.task_id),
+            );
+          }
           if (message.type === "rate_limit_event") {
             const rateLimitInfo = message.rate_limit_info;
             if (!rateLimitInfo) return;
@@ -5661,7 +5698,11 @@ export function makeClaudeAdapterV2(
               // With no model of its own, a nested subagent runs on its
               // owner's (the SDK's default for a subagent's Agent call).
               const model = launch?.model ?? owner?.task.model ?? undefined;
-              if (message.is_backgrounded === true) {
+              // A nested subagent's end goes to its owner, so it never wakes the root.
+              if (
+                message.is_backgrounded === true &&
+                !(yield* isNestedSubagentTask(message.task_id))
+              ) {
                 yield* Ref.update(backgroundedSubagentTaskIds, (current) =>
                   new Set(current).add(message.task_id),
                 );
@@ -6940,22 +6981,23 @@ export function makeClaudeAdapterV2(
         const interruptTurn = Effect.fn("ClaudeAdapterV2.interruptTurn")(
           function* (turnInput: ProviderAdapter.ProviderAdapterV2InterruptInput) {
             const existing = yield* Ref.get(queryContext);
-            if (existing === null) {
-              return yield* new ProviderAdapter.ProviderAdapterProtocolError({
-                driver: CLAUDE_PROVIDER,
-                detail: `Claude provider thread ${turnInput.providerThread.id} has no live query.`,
-              });
-            }
             const currentTurn = yield* Ref.get(activeTurn);
             const nativeThreadId = turnInput.providerThread.nativeThreadRef?.nativeId ?? null;
-            if (
-              currentTurn === null &&
-              turnInput.requestRuntimeRestart === true &&
-              nativeThreadId !== null &&
-              existing.nativeThreadId === nativeThreadId
-            ) {
-              // Stop after the turn settled: the background shells belong to
-              // the CLI process, so closing its query is what stops them.
+            if (currentTurn === null && turnInput.requestRuntimeRestart === true) {
+              // Stop after the turn settled. With no CLI process of this
+              // native thread left, nothing it started is still running: its
+              // roster is not authoritative any more, and the orchestrator
+              // settles the items the thread still shows.
+              if (nativeThreadId === null) return;
+              if (existing === null || existing.nativeThreadId !== nativeThreadId) {
+                yield* clearWakeStateForNativeThread(nativeThreadId);
+                yield* resetBackgroundTaskStateForNativeThreadProcess(nativeThreadId, {
+                  status: "idle",
+                });
+                return;
+              }
+              // The background shells belong to the CLI process, so closing
+              // its query is what stops them.
               yield* closeLiveQueryForNativeThread(nativeThreadId);
               // A turn started while the close was pending may have opened a
               // replacement process. Its Waiting and wake state are its own.
@@ -6967,6 +7009,12 @@ export function makeClaudeAdapterV2(
                 });
               }
               return;
+            }
+            if (existing === null) {
+              return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                driver: CLAUDE_PROVIDER,
+                detail: `Claude provider thread ${turnInput.providerThread.id} has no live query.`,
+              });
             }
             if (currentTurn?.providerTurnId !== turnInput.providerTurnId) {
               return yield* new ProviderAdapter.ProviderAdapterProtocolError({
