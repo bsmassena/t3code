@@ -20,7 +20,6 @@ export interface DiffFileUiState {
   readonly viewedFileKeys: ReadonlyArray<string>;
 }
 
-// "branch" is the Changes view: everything this checkout changed since its base.
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
 const DEFAULT_WORKING_TREE_SELECTION: DiffPanelSelection = { kind: "working-tree" };
 const EMPTY_DIFF_FILE_UI_STATE: DiffFileUiState = {

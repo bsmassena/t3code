@@ -6,7 +6,7 @@ import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { CHATGPT_USAGE_URL } from "@t3tools/shared/usageLimits";
 import * as Option from "effect/Option";
 import { Linking, Pressable, View } from "react-native";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { useThreadDetail } from "../../state/use-thread-detail";
 

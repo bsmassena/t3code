@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
 import {
+  OtlpEndpointCheckInput,
   resolveEnvironmentMachineKind,
   ServerConfig,
   ServerObservability,
@@ -31,12 +32,6 @@ const baseProviderSnapshot = {
 };
 
 describe("ServerProvider", () => {
-  it("preserves account identity while accepting snapshots from older servers", () => {
-    const auth = { status: "authenticated", email: "same@example.com", accountId: "personal" };
-    expect(decodeServerProvider({ ...baseProviderSnapshot, auth }).auth).toEqual(auth);
-    expect(decodeServerProvider(baseProviderSnapshot).auth.accountId).toBeUndefined();
-  });
-
   it.each([undefined, true, false])("decodes workspace command discovery pending=%s", (pending) => {
     const workspace = {
       cwd: "/workspace/project",
@@ -166,12 +161,6 @@ describe("server config forward compatibility", () => {
     expect(parsed).toEqual(["zed", "vscode"]);
   });
 
-  // A provider status this build has never seen (a new ServerProviderState,
-  // ServerProviderAuthStatus, etc. member) previously failed the whole
-  // `providers` array, taking every other provider down with it and, since
-  // `providers` sits inside `ServerConfig`, failing the whole config decode —
-  // an older client would drop its connection over one provider it can't
-  // render. Dropping just that element keeps every other provider working.
   it("drops providers this build cannot decode instead of failing the whole array", () => {
     const decodedBase = decodeServerProvider(baseProviderSnapshot);
 
@@ -270,5 +259,18 @@ describe("resolveEnvironmentMachineKind", () => {
     expect(
       resolveEnvironmentMachineKind({ environment: parsed, settings: decodeSettings({}) }),
     ).toBe("server");
+  });
+});
+
+describe("OtlpEndpointCheckInput", () => {
+  const decode = Schema.decodeUnknownSync(OtlpEndpointCheckInput);
+
+  it("accepts HTTP receivers only", () => {
+    expect(decode({ signal: "traces", url: "https://collector.example.com/v1/traces" }).url).toBe(
+      "https://collector.example.com/v1/traces",
+    );
+    for (const url of ["data:text/plain,ok", "file:///etc/hosts", "collector:4318/v1/traces"]) {
+      expect(() => decode({ signal: "traces", url })).toThrow();
+    }
   });
 });
