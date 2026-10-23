@@ -4,7 +4,7 @@ import DiffsWorker from "@pierre/diffs/worker/worker.js?worker";
 import * as Schema from "effect/Schema";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useStableCallback } from "../hooks/useStableCallback";
-import { useTheme } from "../hooks/useTheme";
+import { useTheme, useRenderedAppearance } from "../hooks/useTheme";
 import {
   DIFF_THEME_NAME_VALUES,
   resolveDiffThemeName,
@@ -130,7 +130,8 @@ function DiffWorkerReady({ children }: { children?: ReactNode }) {
 }
 
 export function DiffWorkerPoolProvider({ children }: { children?: ReactNode }) {
-  const { resolvedTheme, syntaxTheme } = useTheme();
+  const { syntaxTheme } = useTheme();
+  const resolvedTheme = useRenderedAppearance();
   const diffThemeName = resolveDiffThemeName(resolvedTheme, syntaxTheme);
   const [workerPoolSize] = useState(resolveDiffWorkerPoolSize);
   // A new subscribe identity makes React release and reacquire the shared pool on every render.

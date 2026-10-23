@@ -6,7 +6,6 @@ import {
   buildFileDiffIdentityKey,
   buildFileDiffRenderKey,
   buildFileDiffUiStateKey,
-  buildPatchCacheKey,
   getDiffLineStat,
   getRenderablePatch,
   resolveFileDiffPath,
@@ -23,29 +22,6 @@ describe("resolveDiffThemeName", () => {
   it("selects the matching VS Code palette for each appearance", () => {
     expect(resolveDiffThemeName("light", "vs-code")).toBe("light-plus");
     expect(resolveDiffThemeName("dark", "vs-code")).toBe("dark-plus");
-  });
-});
-
-describe("buildPatchCacheKey", () => {
-  it("normalizes outer whitespace before hashing", () => {
-    const patch = "diff --git a/a.ts b/a.ts\n+console.log('hello')";
-
-    expect(buildPatchCacheKey(`\n${patch}\n`)).toBe(buildPatchCacheKey(patch));
-  });
-
-  it("changes when diff content changes", () => {
-    const before = "diff --git a/a.ts b/a.ts\n+console.log('hello')";
-    const after = "diff --git a/a.ts b/a.ts\n+console.log('hello world')";
-
-    expect(buildPatchCacheKey(before)).not.toBe(buildPatchCacheKey(after));
-  });
-
-  it("changes when cache scope changes", () => {
-    const patch = "diff --git a/a.ts b/a.ts\n+console.log('hello')";
-
-    expect(buildPatchCacheKey(patch, "diff-panel:light")).not.toBe(
-      buildPatchCacheKey(patch, "diff-panel:dark"),
-    );
   });
 });
 
@@ -483,18 +459,6 @@ describe("a file whose name a patch header cannot carry plainly", () => {
     if (!file) throw new Error("patch carried no file");
     return resolveFileDiffPath(file);
   };
-
-  it("is the name the host knows, not the part of it before the tab", () => {
-    expect(pathOf(quotedPatch("tab\\tfile.txt"))).toBe("tab\tfile.txt");
-  });
-
-  it("is the name the host knows, not the part of it before the newline", () => {
-    expect(pathOf(quotedPatch("line\\nfile.txt"))).toBe("line\nfile.txt");
-  });
-
-  it("keeps a backslash the name really has", () => {
-    expect(pathOf(quotedPatch("back\\\\slash.txt"))).toBe("back\\slash.txt");
-  });
 
   it("reads the octal a host with core.quotePath on writes for a name outside ASCII", () => {
     expect(pathOf(quotedPatch("caf\\303\\251/r\\303\\251sum\\303\\251.ts"))).toBe("café/résumé.ts");

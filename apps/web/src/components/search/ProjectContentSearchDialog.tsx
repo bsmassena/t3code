@@ -4,7 +4,7 @@ import { AuthFilesystemReadScope, type ProjectContentMatch } from "@t3tools/cont
 import { useEffect, useState, type ReactNode } from "react";
 
 import { useActiveProjectTarget, type ActiveProjectTarget } from "~/hooks/useActiveProjectTarget";
-import { useTheme } from "~/hooks/useTheme";
+import { useRenderedAppearance, useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { useProjectContentSearch } from "~/state/queries";
@@ -105,7 +105,8 @@ function OpenContentSearchDialog(props: {
   readonly target: ActiveProjectTarget;
 }) {
   const { target } = props;
-  const { resolvedTheme, syntaxTheme } = useTheme();
+  const { syntaxTheme } = useTheme();
+  const renderedAppearance = useRenderedAppearance();
   const [query, setQuery] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
@@ -267,7 +268,7 @@ function OpenContentSearchDialog(props: {
                     <PierreEntryIcon
                       pathValue={group.path}
                       kind="file"
-                      theme={resolvedTheme}
+                      theme={renderedAppearance}
                       className="size-3.5"
                     />
                     <span className="font-medium text-foreground">{path.name}</span>
@@ -300,7 +301,7 @@ function OpenContentSearchDialog(props: {
                         <HighlightedSearchLine
                           match={match}
                           path={group.path}
-                          theme={resolvedTheme}
+                          theme={renderedAppearance}
                           syntaxTheme={syntaxTheme}
                         />
                       </span>
