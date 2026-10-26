@@ -749,6 +749,7 @@ export default function DiffPanel({
     ? (codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath)?.fileKey ?? null)
     : null;
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- Loaded file identities reconcile persisted review state in the external store.
   useEffect(() => {
     if (!collapseScopeKey || diffFileUiStateKeys.length === 0) return;
     useDiffPanelStore
@@ -765,6 +766,7 @@ export default function DiffPanel({
     viewKey: codeViewMountKey,
     requestId: selectedFileRevealRequestId,
   };
+  // oxlint-disable-next-line t3code/react-effect-budget -- Selection must scroll Pierre after its item has mounted.
   useEffect(() => {
     if (!selectedRevealTarget.fileKey) return;
     codeViewRef.current?.scrollTo({
@@ -780,6 +782,7 @@ export default function DiffPanel({
     ? navigatorSelectedFileKey
     : null;
   const navigatorRevealTarget = { fileKey: activeNavigatorFileKey, files: codeViewFiles };
+  // oxlint-disable-next-line t3code/react-effect-budget -- Navigator selection synchronizes the imperative code viewer after files load.
   useEffect(() => {
     if (!navigatorRevealTarget.fileKey) return;
     codeViewRef.current?.scrollTo({
@@ -790,6 +793,7 @@ export default function DiffPanel({
   }, [navigatorRevealTarget, codeViewRef]);
 
   const externalRevealRef = useRef<{ cache: string; key: string } | null>(null);
+  // oxlint-disable-next-line t3code/react-effect-budget -- External reveals request a file once its lazy source becomes available.
   useEffect(() => {
     if (!lazySource || !selectedFilePath) return;
     const key = `${selectedFilePath}:${selectedFileRevealRequestId}`;
@@ -955,7 +959,7 @@ export default function DiffPanel({
 
   const headerRow = (
     <>
-      <div className="flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
+      <div className="@container/diff-refs flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
         <DropdownMenu>
           <DropdownMenuTrigger
             render={<Button size="xs" variant="secondary" />}
@@ -1073,18 +1077,28 @@ export default function DiffPanel({
             className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden text-xs text-muted-foreground"
             aria-label={`Comparing ${selectedGitSource.headRef ?? "HEAD"} against ${selectedGitSource.baseRef}`}
           >
-            {/* The head ref keeps 3rem while the row has room; below that the
-                base-ref button keeps 2.25rem so its menu stays reachable. */}
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <span className="flex min-w-[min(3rem,calc(100%-2.75rem))] items-center gap-2 overflow-hidden" />
+                  <span className="flex min-w-[min(3rem,calc(100%-2.75rem))] items-center gap-2 overflow-hidden redesign:@max-[20rem]/diff-refs:hidden" />
                 }
               >
                 <span className="min-w-0 max-w-48 truncate">
                   {selectedGitSource.headRef ?? "HEAD"}
                 </span>
                 <ArrowRightIcon className="size-3.5 shrink-0 opacity-70" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                {`${selectedGitSource.headRef ?? "HEAD"} → ${selectedGitSource.baseRef}`}
+              </TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span aria-hidden className="hidden redesign:@max-[20rem]/diff-refs:inline" />
+                }
+              >
+                vs
               </TooltipTrigger>
               <TooltipPopup side="top">
                 {`${selectedGitSource.headRef ?? "HEAD"} → ${selectedGitSource.baseRef}`}
@@ -1104,7 +1118,7 @@ export default function DiffPanel({
             >
               <ComboboxTrigger
                 render={<Button variant="ghost-muted" size="xs" />}
-                className="min-w-9 max-w-48 shrink"
+                className="min-w-9 max-w-48 shrink redesign:shrink-0"
                 aria-label={`Change comparison target. Currently ${selectedGitSource.baseRef}`}
               >
                 <span className="min-w-0 truncate">{selectedGitSource.baseRef}</span>
@@ -1405,7 +1419,10 @@ export default function DiffPanel({
                     const composedPath = event.nativeEvent.composedPath?.() ?? [];
                     const clickedAction = composedPath.some(
                       (node) =>
-                        node instanceof HTMLElement && node.hasAttribute("data-diff-header-action"),
+                        node instanceof HTMLButtonElement ||
+                        node instanceof HTMLAnchorElement ||
+                        (node instanceof HTMLElement &&
+                          node.hasAttribute("data-diff-header-action")),
                     );
                     if (clickedAction) return;
 

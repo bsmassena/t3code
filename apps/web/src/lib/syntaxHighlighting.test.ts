@@ -7,6 +7,7 @@ const { getSharedHighlighter } = vi.hoisted(() => ({
 
 vi.mock("@pierre/diffs", () => ({
   getSharedHighlighter,
+  registerCustomTheme: vi.fn(),
 }));
 
 import { getSyntaxHighlighterPromise } from "./syntaxHighlighting";
@@ -27,7 +28,7 @@ it("caches the recovered text highlighter for unsupported languages", async () =
   expect(getSharedHighlighter).toHaveBeenCalledTimes(2);
   expect(getSharedHighlighter).toHaveBeenCalledWith(
     expect.objectContaining({
-      themes: ["pierre-light", "pierre-dark", "light-plus", "dark-plus"],
+      themes: ["pierre-light", "pierre-dark", "light-plus", "dark-plus", "t3-light"],
     }),
   );
 });

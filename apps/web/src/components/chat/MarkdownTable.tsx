@@ -1,6 +1,7 @@
 import { Check, Copy, Maximize2 } from "lucide";
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useRef, useState, type ComponentProps } from "react";
 
+import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import {
   serializeTableElementToCsv,
   serializeTableElementToMarkdown,
@@ -17,46 +18,23 @@ import { Dialog, DialogPopup } from "../ui/dialog";
 export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [expandedOpen, setExpandedOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { copyToClipboard, isCopied: copied } = useCopyToClipboard<"markdown" | "csv">({
+    timeout: 1200,
+    onError: (cause, format) =>
+      reportMarkdownActionFailure({ operation: "copy-table", format }, cause),
+  });
   const expandLabel = "Expand table";
   const copyLabel = copied ? "Copied" : "Copy table";
-
   const handleCopy = (format: "markdown" | "csv") => {
     const table = containerRef.current?.querySelector("table");
-    if (!table || typeof navigator === "undefined" || navigator.clipboard == null) {
-      return;
-    }
-    const text =
+    if (!table) return;
+    copyToClipboard(
       format === "markdown"
         ? serializeTableElementToMarkdown(table)
-        : serializeTableElementToCsv(table);
-    void navigator.clipboard
-      .writeText(text)
-      .then(() => {
-        if (copiedTimerRef.current != null) {
-          clearTimeout(copiedTimerRef.current);
-        }
-        setCopied(true);
-        copiedTimerRef.current = setTimeout(() => {
-          setCopied(false);
-          copiedTimerRef.current = null;
-        }, 1200);
-      })
-      .catch((cause) => {
-        reportMarkdownActionFailure({ operation: "copy-table", format }, cause);
-      });
+        : serializeTableElementToCsv(table),
+      format,
+    );
   };
-
-  useEffect(
-    () => () => {
-      if (copiedTimerRef.current != null) {
-        clearTimeout(copiedTimerRef.current);
-        copiedTimerRef.current = null;
-      }
-    },
-    [],
-  );
 
   return (
     <div ref={containerRef} className="chat-markdown-table-container">
