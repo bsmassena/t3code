@@ -29,6 +29,9 @@ import {
   sortScopedProjectsForSidebar,
   sortSidebarV2ProjectGroups,
   shouldNavigateAfterThreadPark,
+  buildSidebarProjectScopeItems,
+  filterSidebarProjectScopeItems,
+  setSidebarProjectScopeSelection,
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
@@ -222,6 +225,112 @@ function makeLatestRun(overrides?: {
       overrides?.completedAt !== undefined ? overrides.completedAt : "2026-03-09T10:05:00.000Z",
   };
 }
+
+describe("setSidebarProjectScopeSelection", () => {
+  const allKeys = ["a", "b", "c"];
+
+  it("narrows every project to all but the deselected one", () => {
+    expect(
+      setSidebarProjectScopeSelection({ allKeys, scopeKeys: null, keys: ["b"], selected: false }),
+    ).toEqual(["a", "c"]);
+  });
+
+  it("adds projects one by one to an empty scope", () => {
+    expect(
+      setSidebarProjectScopeSelection({ allKeys, scopeKeys: [], keys: ["c"], selected: true }),
+    ).toEqual(["c"]);
+  });
+
+  it("removes a folder's projects together", () => {
+    expect(
+      setSidebarProjectScopeSelection({
+        allKeys,
+        scopeKeys: null,
+        keys: ["a", "b"],
+        selected: false,
+      }),
+    ).toEqual(["c"]);
+  });
+
+  it("widens back to every project once all are picked", () => {
+    expect(
+      setSidebarProjectScopeSelection({
+        allKeys,
+        scopeKeys: ["a"],
+        keys: ["b", "c"],
+        selected: true,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("buildSidebarProjectScopeItems", () => {
+  const group = (projectKey: string, workspaceRoot: string, isScratch?: boolean) => ({
+    projectKey,
+    displayName: projectKey,
+    workspaceRoot,
+    isScratch,
+  });
+
+  it("lists projects flat when they share one parent directory", () => {
+    const items = buildSidebarProjectScopeItems([
+      group("a", "/home/me/code/a"),
+      group("b", "/home/me/code/b/"),
+    ]);
+    expect(items.map((item) => item.value)).toEqual(["all", "a", "b"]);
+  });
+
+  it("groups projects under their parent directories", () => {
+    const items = buildSidebarProjectScopeItems([
+      group("a", "C:\\Users\\me\\projetos\\a"),
+      group("b", "/home/me/work/b"),
+      group("c", "C:\\Users\\me\\projetos\\c"),
+      group("scratch", "/tmp/scratch/1", true),
+    ]);
+    expect(items.map((item) => [item.value, item.label, item.projectKeys ?? null])).toEqual([
+      ["all", "All projects", null],
+      ["folder:C:\\Users\\me\\projetos", "projetos", ["a", "c"]],
+      ["a", "a", null],
+      ["c", "c", null],
+      ["folder:/home/me/work", "work", ["b"]],
+      ["b", "b", null],
+      ["scratch", "scratch", null],
+    ]);
+  });
+
+  it("shows full paths for folders that share a name", () => {
+    const items = buildSidebarProjectScopeItems([
+      group("a", "/home/me/code/a"),
+      group("b", "/srv/code/b"),
+    ]);
+    expect(items.filter((item) => item.projectKeys).map((item) => item.label)).toEqual([
+      "/home/me/code",
+      "/srv/code",
+    ]);
+  });
+});
+
+describe("filterSidebarProjectScopeItems", () => {
+  const items = buildSidebarProjectScopeItems([
+    { projectKey: "api", displayName: "api", workspaceRoot: "/home/me/work/api" },
+    { projectKey: "web", displayName: "web", workspaceRoot: "/home/me/work/web" },
+    { projectKey: "notes", displayName: "notes", workspaceRoot: "/home/me/personal/notes" },
+  ]);
+  const filter = (query: string) =>
+    filterSidebarProjectScopeItems({
+      items,
+      query,
+      matches: (item, value) => item.searchText.includes(value),
+    }).map((item) => item.value);
+
+  it("keeps a matching project's folder row", () => {
+    expect(filter("web")).toEqual(["folder:/home/me/work", "web"]);
+  });
+
+  it("finds every project in a folder by its path", () => {
+    expect(filter("work")).toEqual(["folder:/home/me/work", "api", "web"]);
+  });
+});
 
 describe("orderItemsByPreferredIds", () => {
   it("resolves legacy preference aliases without materializing project state", () => {

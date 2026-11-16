@@ -60,8 +60,18 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
 }
 
 // Checkbox's look without its hidden input, for a row that is itself the button.
-function CheckboxMark({ checked }: { checked: boolean }) {
-  const state = checked ? { "data-checked": "" } : { "data-unchecked": "" };
+function CheckboxMark({
+  checked,
+  indeterminate = false,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+}) {
+  const state = indeterminate
+    ? { "data-indeterminate": "" }
+    : checked
+      ? { "data-checked": "" }
+      : { "data-unchecked": "" };
   return (
     <span aria-hidden className={rootClassName} data-slot="checkbox" {...state}>
       <span className={indicatorClassName} data-slot="checkbox-indicator" {...state}>
@@ -77,7 +87,7 @@ function CheckboxMark({ checked }: { checked: boolean }) {
           width="24"
           xmlns="http://www.w3.org/2000/svg"
         >
-          <path d="M5.252 12.7 10.2 18.63 18.748 5.37" />
+          <path d={indeterminate ? "M5.252 12h13.496" : "M5.252 12.7 10.2 18.63 18.748 5.37"} />
         </svg>
       </span>
     </span>

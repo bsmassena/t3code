@@ -84,6 +84,22 @@ export function resolveSidebarProjectScopeKey(input: {
   return group?.projectKey ?? (input.canClearMissingScope ? null : input.key);
 }
 
+// A scope whose projects are all gone reads as all projects; a scope the user emptied stays empty.
+export function resolveSidebarProjectScopeKeys(input: {
+  readonly groups: ReadonlyArray<SidebarProjectSnapshot>;
+  readonly keys: ReadonlyArray<string> | null;
+  readonly settings?: ProjectGroupingSettings;
+  readonly canClearMissingScope?: boolean;
+}): ReadonlyArray<string> | null {
+  if (input.keys === null) return null;
+  const resolved = new Set<string>();
+  for (const key of input.keys) {
+    const scopeKey = resolveSidebarProjectScopeKey({ ...input, key });
+    if (scopeKey !== null) resolved.add(scopeKey);
+  }
+  return input.keys.length > 0 && resolved.size === 0 ? null : [...resolved];
+}
+
 export function buildPhysicalToLogicalProjectKeyMap(input: {
   projects: ReadonlyArray<Project>;
   settings: ProjectGroupingSettings;

@@ -1003,14 +1003,116 @@ export function pullRequestMatchesSearchQuery(
   return normalizedQuery.split(" ").every((token) => haystack.includes(token));
 }
 
-export function filterSidebarProjectScopeItems<TItem extends { readonly value: string }>(input: {
+export interface SidebarProjectScopeItem {
+  readonly value: string;
+  readonly label: string;
+  /** The name plus the parent directory, so the menu search finds projects by folder. */
+  readonly searchText: string;
+  /** Set on folder rows: the projects the row toggles. */
+  readonly projectKeys?: readonly string[] | undefined;
+  /** Set on project rows listed under a folder row. */
+  readonly folderValue?: string | undefined;
+}
+
+function parentDirectory(workspaceRoot: string): string | null {
+  const root = workspaceRoot.replace(/[\\/]+$/, "");
+  const index = Math.max(root.lastIndexOf("/"), root.lastIndexOf("\\"));
+  if (index < 0) return null;
+  return index === 0 ? root.slice(0, 1) : root.slice(0, index);
+}
+
+function directoryName(directory: string): string {
+  const index = Math.max(directory.lastIndexOf("/"), directory.lastIndexOf("\\"));
+  return directory.slice(index + 1) || directory;
+}
+
+// Folder rows appear only when projects live in more than one parent directory.
+export function buildSidebarProjectScopeItems(
+  groups: ReadonlyArray<{
+    readonly projectKey: string;
+    readonly displayName: string;
+    readonly workspaceRoot: string;
+    readonly isScratch?: boolean | undefined;
+  }>,
+): SidebarProjectScopeItem[] {
+  const allItem: SidebarProjectScopeItem = {
+    value: "all",
+    label: "All projects",
+    searchText: "All projects",
+  };
+  const entries = groups.map((group) => ({
+    group,
+    parent: group.isScratch ? null : parentDirectory(group.workspaceRoot),
+  }));
+  const projectItem = (entry: (typeof entries)[number], folderValue?: string) => ({
+    value: entry.group.projectKey,
+    label: entry.group.displayName,
+    searchText: `${entry.group.displayName} ${entry.parent ?? ""}`,
+    folderValue,
+  });
+  const parents = [...new Set(entries.flatMap((entry) => (entry.parent ? [entry.parent] : [])))];
+  if (parents.length < 2) return [allItem, ...entries.map((entry) => projectItem(entry))];
+
+  const nameCounts = new Map<string, number>();
+  for (const parent of parents) {
+    const name = directoryName(parent);
+    nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+  }
+  const items = [allItem];
+  for (const parent of parents) {
+    const children = entries.filter((entry) => entry.parent === parent);
+    const name = directoryName(parent);
+    const folderValue = `folder:${parent}`;
+    items.push({
+      value: folderValue,
+      label: (nameCounts.get(name) ?? 0) > 1 ? parent : name,
+      searchText: parent,
+      projectKeys: children.map((entry) => entry.group.projectKey),
+    });
+    items.push(...children.map((entry) => projectItem(entry, folderValue)));
+  }
+  items.push(
+    ...entries.filter((entry) => entry.parent === null).map((entry) => projectItem(entry)),
+  );
+  return items;
+}
+
+/** Keeps a folder row while any of its projects match, and a folder's projects while it matches. */
+export function filterSidebarProjectScopeItems<TItem extends SidebarProjectScopeItem>(input: {
   items: readonly TItem[];
   query: string;
   matches: (item: TItem, query: string) => boolean;
 }): readonly TItem[] {
   const query = input.query.trim();
   if (query.length === 0) return input.items;
-  return input.items.filter((item) => item.value !== "all" && input.matches(item, query));
+  const matched = new Set(
+    input.items
+      .filter((item) => item.value !== "all" && input.matches(item, query))
+      .map((item) => item.value),
+  );
+  return input.items.filter(
+    (item) =>
+      matched.has(item.value) ||
+      (item.folderValue !== undefined && matched.has(item.folderValue)) ||
+      (item.projectKeys?.some((key) => matched.has(key)) ?? false),
+  );
+}
+
+/** Null scopes the sidebar to every project, so projects added later show up too. */
+export function setSidebarProjectScopeSelection(input: {
+  readonly allKeys: readonly string[];
+  readonly scopeKeys: readonly string[] | null;
+  readonly keys: readonly string[];
+  readonly selected: boolean;
+}): string[] | null {
+  const next = new Set(input.scopeKeys ?? input.allKeys);
+  for (const key of input.keys) {
+    if (input.selected) next.add(key);
+    else next.delete(key);
+  }
+  return input.allKeys.every((key) => next.has(key))
+    ? null
+    : input.allKeys.filter((key) => next.has(key));
 }
 
 export interface SidebarProjectScopeMenuState {
