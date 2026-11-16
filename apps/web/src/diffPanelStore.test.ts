@@ -14,7 +14,6 @@ describe("diffPanelStore", () => {
     useDiffPanelStore.setState({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
-      viewedFileKeysByScopeKey: {},
     });
     useDiffPanelSessionStore.setState({ collapsedFileKeysByScopeKey: {} });
   });
@@ -84,65 +83,6 @@ describe("diffPanelStore", () => {
       resolveToolCallDiffTarget(target, [{ ...completed, sourceThreadId: ThreadId.make("other") }]),
     ).toBe(target);
     expect(resolveToolCallDiffTarget(target, [])).toBe(target);
-  });
-
-  it("returns from a local source to the branch base it left", () => {
-    const ref = { environmentId: EnvironmentId.make("env"), threadId: ThreadId.make("thread") };
-    const store = useDiffPanelStore.getState();
-    store.selectBranchBaseRef(ref, "origin/release");
-    store.selectLocalSource(ref, "staged");
-    expect(useDiffPanelStore.getState().byThreadKey[scopedThreadKey(ref)]).toEqual({
-      kind: "local",
-      source: "staged",
-    });
-    store.selectGitScope(ref, "branch");
-    expect(useDiffPanelStore.getState().byThreadKey[scopedThreadKey(ref)]).toEqual({
-      kind: "branch",
-      baseRef: "origin/release",
-    });
-  });
-
-  it("drops viewed files whose content changed and forgets them with the thread", () => {
-    const ref = { environmentId: EnvironmentId.make("env"), threadId: ThreadId.make("thread") };
-    const scopeKey = "env:thread:branch";
-    const store = useDiffPanelStore.getState();
-    store.toggleDiffFileViewed(scopeKey, "a.ts:old");
-    store.toggleDiffFileViewed(scopeKey, "b.ts:same");
-    store.pruneViewedDiffFiles(scopeKey, ["a.ts:new", "b.ts:same"]);
-    expect(useDiffPanelStore.getState().viewedFileKeysByScopeKey[scopeKey]).toEqual(["b.ts:same"]);
-
-    store.removeThread(ref);
-    expect(useDiffPanelStore.getState().viewedFileKeysByScopeKey).toEqual({});
-  });
-
-  it("migrates both version 2 layouts without misreading the older fork's scopes", async () => {
-    const { migrate } = useDiffPanelStore.persist.getOptions();
-    const migrated = await migrate?.(
-      {
-        byThreadKey: {
-          upstream: { kind: "commit", sha: "abc", baseRef: "main" },
-          forkCommit: { kind: "commit", commitSha: "def" },
-          forkWorkingTree: { kind: "working-tree" },
-          forkStaged: { kind: "staged" },
-          unknown: { kind: "split" },
-        },
-        branchBaseRefByThreadKey: { upstream: "main" },
-        diffFileUiStateByScopeKey: {
-          "env:thread:branch": { expandedFileKeys: ["x"], viewedFileKeys: ["a.ts:1"] },
-        },
-        diffRenderMode: "split",
-      },
-      2,
-    );
-    expect(migrated).toEqual({
-      byThreadKey: {
-        upstream: { kind: "commit", sha: "abc", baseRef: "main" },
-        forkWorkingTree: { kind: "unstaged" },
-        forkStaged: { kind: "local", source: "staged" },
-      },
-      branchBaseRefByThreadKey: { upstream: "main" },
-      viewedFileKeysByScopeKey: { "env:thread:branch": ["a.ts:1"] },
-    });
   });
 
   it("retains fold choices when a panel consumer returns with fresh defaults", () => {

@@ -49,7 +49,6 @@ import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
 import {
   readAppearanceModePreference,
-  readSyntaxThemePreference,
   readThemeHalves,
   readThemePreference,
   useTheme,
@@ -81,7 +80,6 @@ import {
   usePrimaryEnvironmentId,
 } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
-import { DEFAULT_SYNTAX_THEME_PREFERENCE } from "../../syntaxTheme";
 import { Button } from "../ui/button";
 import { DraftInput } from "../ui/draft-input";
 import { Input } from "../ui/input";
@@ -442,9 +440,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     followSystem,
     setFollowSystem,
     setThemeHalf,
-    setSyntaxTheme,
     clearThemeHalves,
-    syntaxTheme,
     themeHalves,
   } = useTheme();
   const settings = useScopedSettings();
@@ -463,7 +459,6 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
       ? ["Contrast"]
       : []),
-    ...(syntaxTheme !== DEFAULT_SYNTAX_THEME_PREFERENCE ? ["Syntax highlighting"] : []),
     ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
     ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
       ? ["Diff colors"]
@@ -620,15 +615,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       previousTheme = readThemePreference();
     } catch {}
     const liveHalves = readThemeHalves();
-    let previousSyntaxTheme = syntaxTheme;
-    try {
-      previousSyntaxTheme = readSyntaxThemePreference();
-    } catch {
-      // Storage is unreadable; the render-time value is the best rollback.
-    }
     const needsThemeReset = previousTheme !== "system";
     const needsMixReset = liveHalves !== null;
-    const needsSyntaxThemeReset = previousSyntaxTheme !== DEFAULT_SYNTAX_THEME_PREFERENCE;
     const needsFollowSystemReset = readAppearanceModePreference(previousTheme) !== "system";
     const notifyThemeRestoreFailure = () => {
       toastManager.add(
@@ -642,17 +630,11 @@ export function useSettingsRestore(onRestored?: () => void) {
     // Restore the base preference before the mix because restoring the base clears the mix.
     const previousHalves = liveHalves;
     const rollbackThemeState = () => {
-      if (needsSyntaxThemeReset) setSyntaxTheme(previousSyntaxTheme);
       if (needsThemeReset) setTheme(previousTheme);
       if (previousHalves?.light) setThemeHalf("light", previousHalves.light);
       if (previousHalves?.dark) setThemeHalf("dark", previousHalves.dark);
     };
-    if (needsSyntaxThemeReset && !setSyntaxTheme(DEFAULT_SYNTAX_THEME_PREFERENCE)) {
-      notifyThemeRestoreFailure();
-      return;
-    }
     if (needsThemeReset && !setTheme("system")) {
-      rollbackThemeState();
       notifyThemeRestoreFailure();
       return;
     }

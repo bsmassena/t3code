@@ -192,11 +192,6 @@ instructions to commits and pull requests.
 
 ## Review and merge
 
-For local changes, open the diff panel and pick a scope: branch **Changes**, **Uncommitted**,
-**Staged**, **Unstaged**, a commit, or a turn. In **Staged** and **Unstaged**, each file header can
-stage, unstage, or revert that file. In other scopes, **Mark viewed** folds a file; the mark
-clears when the file changes again and is kept on this client.
-
 Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
 or merge. You can edit review titles and descriptions and your own comments where the host allows it.
 Where you can edit a description, you can also tick its checkboxes from the Summary tab

@@ -1,6 +1,8 @@
+import { useNativeFileDrag } from "../../useNativeFileDrag";
+import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { documentChipKindForFileName } from "~/pierre-icons";
 import { isSvgAttachment } from "@t3tools/shared/image";
-import { useTheme, useRenderedAppearance } from "../../hooks/useTheme";
+import { useRenderedAppearance } from "../../hooks/useTheme";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
 import { useRightPanelStore } from "~/rightPanelStore";
@@ -68,11 +70,15 @@ function UserMessageMentionChip(props: {
   copyMarkdown: string;
 }) {
   const ctx = use(TimelineRowCtx);
+  const nativeDrag = useNativeFileDrag(ctx.activeThreadEnvironmentId, () =>
+    resolvePathLinkTarget(props.record.path, ctx.workspaceRoot ?? ""),
+  );
   return (
     <Tooltip>
       <TooltipTrigger
         render={
           <ContextChip
+            {...nativeDrag}
             kind={documentChipKindForFileName(props.record.path) ?? "mention"}
             render={<button type="button" />}
             aria-label={`Preview ${props.record.path}`}
@@ -554,7 +560,6 @@ export function UserMessageContextReferenceChip(props: {
 
 function UserMessageReviewCommentCard({ comment }: { comment: ReviewCommentContext }) {
   const renderedAppearance = useRenderedAppearance();
-  const { syntaxTheme } = useTheme();
   const ctx = use(TimelineRowCtx);
   const fenceLanguage = comment.fenceLanguage ?? "diff";
   const renderablePatch = getRenderablePatch(
@@ -602,7 +607,7 @@ function UserMessageReviewCommentCard({ comment }: { comment: ReviewCommentConte
               options={{
                 collapsed: false,
                 diffStyle: "unified",
-                theme: resolveDiffThemeName(renderedAppearance, syntaxTheme),
+                theme: resolveDiffThemeName(renderedAppearance),
                 preferredHighlighter: PREFERRED_HIGHLIGHTER,
               }}
             />

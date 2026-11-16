@@ -175,7 +175,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
           deviceStateLoaded ? deviceState : null,
         );
       }
-      useRightPanelStore.setState({ maximized: false });
+      useRightPanelStore.getState().setMaximized(activeThreadRef, false);
       useRightPanelStore.getState().close(activeThreadRef);
     }
   };
@@ -244,7 +244,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   const toggleRightPanelMaximized = () => {
     if (!canMaximizeRightPanel || !activeThreadRef) return;
     if (!rightPanelMaximized) requestWorkspaceFocus({ area: "panel" });
-    useRightPanelStore.getState().toggleMaximized();
+    useRightPanelStore.getState().setMaximized(activeThreadRef, !rightPanelMaximized);
   };
   const toggleRightPanelMaximizedStable = useStableCallback(toggleRightPanelMaximized);
   const moveRightPanelSurface = (surfaceId: string, toIndex: number) => {

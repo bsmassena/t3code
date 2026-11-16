@@ -10,7 +10,7 @@ import type {
   PullRequestRef,
   ReviewDiffFileContentsInput,
   ReviewDiffFileContentsResult,
-  ReviewDiffFileSourceKind,
+  ReviewDiffPreviewSourceKind,
 } from "@t3tools/contracts";
 
 import { resolveFileDiffPath } from "./diffRendering";
@@ -18,7 +18,7 @@ import { resolveFileDiffPath } from "./diffRendering";
 interface GitDiffFileContentsSource {
   readonly environmentId: EnvironmentId;
   readonly cwd: string;
-  readonly sourceKind: ReviewDiffFileSourceKind;
+  readonly sourceKind: ReviewDiffPreviewSourceKind;
   readonly baseRef: string | null;
   readonly headRef: string | null;
   readonly cacheKey: string;

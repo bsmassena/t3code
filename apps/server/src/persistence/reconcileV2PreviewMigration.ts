@@ -1,8 +1,3 @@
-import ForkBranchPullRequest from "./Migrations/048_ProjectionThreadBranchPullRequest.ts";
-import ForkActiveOrder from "./Migrations/049_ProjectionThreadsActiveOrderKey.ts";
-import ForkPullRequests from "./Migrations/050_ProjectionThreadPullRequests.ts";
-import ForkMessageContext from "./Migrations/051_ProjectionThreadMessageContext.ts";
-import ForkTitleState from "./Migrations/052_ProjectionThreadTitleState.ts";
 import * as Effect from "effect/Effect";
 import * as Migrator from "effect/sql/Migrator";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -56,67 +51,8 @@ export const reconcileV2PreviewMigration = Effect.fn("reconcileV2PreviewMigratio
       `;
       if (tables.length === 0) return [];
       const history = yield* sql<{ readonly migration_id: number; readonly name: string }>`
-        SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 41
+        SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 53
       `;
-      if (history.some((row) => row.migration_id === 41 && row.name === "OrchestrationV2")) {
-        const forkNames = [
-          "OrchestrationV2",
-          "OrchestrationV2Subagents",
-          "OrchestrationV2Foundation",
-          "OrchestrationV2ProviderSessionBindings",
-          "OrchestrationV2ThreadLaunchWorkflows",
-          "ApplicationEventSource",
-          "OrchestrationV2EffectCancellation",
-          "ScheduledTasks",
-          "LegacyV1ImportState",
-          "AuthSessionClientConnection",
-          "ProjectionThreadLinkedPullRequest",
-          "ProjectionThreadsUnsettledAt",
-          "ClearAutomaticProjectModelDefaults",
-          "ProjectionProjectsAutoPull",
-          "RepairAutomaticSettlementTimestamps",
-          "ProjectionProjectIcon",
-          "ApplicationEventSequenceIndexes",
-          "OrchestrationV2RecoveryIndexes",
-          "OrchestrationV2ShellIndexes",
-        ];
-        if (
-          history.length !== forkNames.length ||
-          history.some((row) => forkNames[row.migration_id - 41] !== row.name)
-        ) {
-          return yield* new Migrator.MigrationError({
-            kind: "BadState",
-            message: "Cannot upgrade an unrecognized custom V2 migration history.",
-          });
-        }
-        // The fork shipped the same V2 schema as twelve steps. Archive its ledger
-        // before adopting the consolidated upstream ids; never replay those steps.
-        yield* sql`CREATE TABLE t3_fork_migration_history AS SELECT * FROM effect_sql_migrations`;
-        const additions = [
-          [48, "ProjectionThreadBranchPullRequest", ForkBranchPullRequest],
-          [49, "ProjectionThreadsActiveOrderKey", ForkActiveOrder],
-          [50, "ProjectionThreadPullRequests", ForkPullRequests],
-          [51, "ProjectionThreadMessageContext", ForkMessageContext],
-          [52, "ProjectionThreadTitleState", ForkTitleState],
-          [53, "PullRequestFilesViewed", PullRequestFilesViewed],
-          [54, "ProjectionThreadsAutoSettleDisabledAt", AutoSettleDisabledAt],
-        ] as const;
-        for (const [, , migration] of additions) yield* migration;
-        yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= 41`;
-        yield* sql`
-          INSERT INTO effect_sql_migrations (migration_id, name, created_at)
-          SELECT migration_id - 9, name, created_at FROM t3_fork_migration_history
-          WHERE migration_id BETWEEN 50 AND 56
-        `;
-        yield* sql`
-          INSERT INTO effect_sql_migrations (migration_id, name, created_at)
-          SELECT 55, name, created_at FROM t3_fork_migration_history WHERE migration_id = 41
-        `;
-        for (const [id, name] of additions) {
-          yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
-        }
-        return additions.map(([id, name]) => [id, name] as const);
-      }
       const previewId = v2PreviewId(
         history.map((row) => ({ id: row.migration_id, name: row.name })),
       );

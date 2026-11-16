@@ -1,36 +1,18 @@
 import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 import { parseDiffFromFile } from "@pierre/diffs";
 import type { FileDiffMetadata } from "@pierre/diffs/types";
-import { DEFAULT_SYNTAX_THEME_PREFERENCE, type SyntaxThemePreference } from "../syntaxTheme";
-
 import { READABLE_LIGHT_THEME_NAME } from "./readableSyntaxTheme";
 
-// T3 Code light uses a darker pierre-light so syntax stays readable on every code surface.
-const DIFF_THEME_NAMES = {
-  "t3-code": {
-    light: READABLE_LIGHT_THEME_NAME,
-    dark: "pierre-dark",
-  },
-  "vs-code": {
-    light: "light-plus",
-    dark: "dark-plus",
-  },
+// Light mode uses a darker pierre-light so syntax stays readable on every code surface.
+export const DIFF_THEME_NAMES = {
+  light: READABLE_LIGHT_THEME_NAME,
+  dark: "pierre-dark",
 } as const;
 
-export const DIFF_THEME_NAME_VALUES = [
-  DIFF_THEME_NAMES["t3-code"].light,
-  DIFF_THEME_NAMES["t3-code"].dark,
-  DIFF_THEME_NAMES["vs-code"].light,
-  DIFF_THEME_NAMES["vs-code"].dark,
-] as const;
+export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NAMES];
 
-export type DiffThemeName = (typeof DIFF_THEME_NAME_VALUES)[number];
-
-export function resolveDiffThemeName(
-  theme: "light" | "dark",
-  preference: SyntaxThemePreference = DEFAULT_SYNTAX_THEME_PREFERENCE,
-): DiffThemeName {
-  return DIFF_THEME_NAMES[preference][theme];
+export function resolveDiffThemeName(theme: "light" | "dark"): DiffThemeName {
+  return DIFF_THEME_NAMES[theme];
 }
 
 const FNV_OFFSET_BASIS_32 = 0x811c9dc5;
@@ -284,71 +266,9 @@ export function buildFileDiffContentVersion(fileDiff: FileDiffMetadata): number 
   return hash;
 }
 
-function readDiffLineContent(lines: ReadonlyArray<string>, start: number, count: number) {
-  return lines.slice(start, start + count).map((line) => {
-    if (!line.endsWith("\n")) return line;
-    return line.endsWith("\r\n") ? line.slice(0, -2) : line.slice(0, -1);
-  });
-}
-
-/**
- * Identifies the review state for one file without inheriting Pierre's
- * whole-patch, theme-dependent render cache key. Hydration may move line
- * indexes into full-file buffers, so the fingerprint reads the referenced
- * line content instead of serializing those indexes.
- */
-export function buildFileDiffUiStateKey(fileDiff: FileDiffMetadata): string {
-  const content = JSON.stringify({
-    name: fileDiff.name,
-    prevName: fileDiff.prevName,
-    newObjectId: fileDiff.newObjectId,
-    prevObjectId: fileDiff.prevObjectId,
-    mode: fileDiff.mode,
-    prevMode: fileDiff.prevMode,
-    type: fileDiff.type,
-    hunks: fileDiff.hunks.map((hunk) => ({
-      additionStart: hunk.additionStart,
-      additionCount: hunk.additionCount,
-      deletionStart: hunk.deletionStart,
-      deletionCount: hunk.deletionCount,
-      hunkContext: hunk.hunkContext,
-      hunkSpecs: hunk.hunkSpecs,
-      noEOFCRAdditions: hunk.noEOFCRAdditions,
-      noEOFCRDeletions: hunk.noEOFCRDeletions,
-      content: hunk.hunkContent.map((segment) =>
-        segment.type === "context"
-          ? {
-              type: segment.type,
-              lines: readDiffLineContent(
-                fileDiff.additionLines,
-                segment.additionLineIndex,
-                segment.lines,
-              ),
-            }
-          : {
-              type: segment.type,
-              additions: readDiffLineContent(
-                fileDiff.additionLines,
-                segment.additionLineIndex,
-                segment.additions,
-              ),
-              deletions: readDiffLineContent(
-                fileDiff.deletionLines,
-                segment.deletionLineIndex,
-                segment.deletions,
-              ),
-            },
-      ),
-    })),
-  });
-  const primary = fnv1a32(content, FNV_OFFSET_BASIS_32, FNV_PRIME_32).toString(36);
-  const secondary = fnv1a32(content, SECONDARY_HASH_SEED, SECONDARY_HASH_MULTIPLIER).toString(36);
-  return `${resolveFileDiffPath(fileDiff)}:${content.length}:${primary}:${secondary}`;
-}
-
 const fileEntryCache = new WeakMap<
   FileDiffMetadata,
-  { fileDiff: FileDiffMetadata; fileKey: string; fileVersion: number; uiStateKey: string }
+  { fileDiff: FileDiffMetadata; fileKey: string; fileVersion: number }
 >();
 
 /** Give repeated blocks independent viewer state without tying identity to patch content. */
@@ -361,7 +281,6 @@ export function buildFileDiffEntries(files: ReadonlyArray<FileDiffMetadata>) {
         fileDiff,
         fileKey: buildFileDiffIdentityKey(fileDiff),
         fileVersion: buildFileDiffContentVersion(fileDiff),
-        uiStateKey: buildFileDiffUiStateKey(fileDiff),
       };
       fileEntryCache.set(fileDiff, entry);
     }

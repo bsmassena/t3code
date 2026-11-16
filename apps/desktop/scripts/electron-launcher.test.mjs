@@ -1,4 +1,3 @@
-import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeEvents from "node:events";
 import * as NodeFS from "node:fs";
@@ -104,22 +103,19 @@ describe("electron development launcher", () => {
     assert.notInclude(script, "node_modules/electron");
   });
 
-  it.skipIf(HostProcess.Platform.defaultValue() === "win32")(
-    "restores execute permissions on an unchanged launcher",
-    () => {
-      const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-launcher-"));
-      const launcherPath = NodePath.join(directory, "launcher");
-      try {
-        writeDevelopmentLauncherScript(launcherPath, "/runtime/Electron");
-        NodeFS.chmodSync(launcherPath, 0o644);
+  it("restores execute permissions on an unchanged launcher", () => {
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-launcher-"));
+    const launcherPath = NodePath.join(directory, "launcher");
+    try {
+      writeDevelopmentLauncherScript(launcherPath, "/runtime/Electron");
+      NodeFS.chmodSync(launcherPath, 0o644);
 
-        assert.isFalse(writeDevelopmentLauncherScript(launcherPath, "/runtime/Electron"));
-        assert.equal(NodeFS.statSync(launcherPath).mode & 0o777, 0o755);
-      } finally {
-        NodeFS.rmSync(directory, { recursive: true, force: true });
-      }
-    },
-  );
+      assert.isFalse(writeDevelopmentLauncherScript(launcherPath, "/runtime/Electron"));
+      assert.equal(NodeFS.statSync(launcherPath).mode & 0o777, 0o755);
+    } finally {
+      NodeFS.rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 // Supply inert imports so the real startup runs without launching Electron or signalling processes.

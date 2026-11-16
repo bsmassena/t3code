@@ -1,3 +1,4 @@
+import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { clientHostEnvironmentAtom } from "../state/clientHostEnvironment";
 import { buildFileLinkParentSuffixByPath, fileLinkLabel } from "@t3tools/shared/fileLinks";
 import {
@@ -136,7 +137,7 @@ import {
 import { openInEditorMenuLabel } from "../editorLabels";
 import { resolveDiffThemeName } from "../lib/diffRendering";
 import { RenderErrorBoundary } from "./RenderErrorBoundary";
-import { useTheme, useRenderedAppearance } from "../hooks/useTheme";
+import { useRenderedAppearance } from "../hooks/useTheme";
 import { useClientSettings } from "../hooks/useSettings";
 import { chatMarkdownClipboardPayload } from "../markdown-clipboard";
 import {
@@ -528,7 +529,6 @@ function useChatMarkdownState({
   sourceControlMediaRepository,
 }: ChatMarkdownProps) {
   const resolvedTheme = useRenderedAppearance();
-  const { syntaxTheme } = useTheme();
   const markdownRef = useRef<HTMLElement>(null);
   const mediaRequestId = useRef(0);
   const mediaScopeKey = [
@@ -681,7 +681,7 @@ function useChatMarkdownState({
       input: { cwd: filePath, editor: "file-manager", reveal: true },
     });
   };
-  const diffThemeName = resolveDiffThemeName(resolvedTheme, syntaxTheme);
+  const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const handleCopy = (event: ReactClipboardEvent<HTMLElement>) => {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || !event.clipboardData) return;
@@ -941,6 +941,9 @@ function useChatMarkdownState({
                     markdownFileEditorTarget(fileLinkMeta, await resolveHostPath()),
                   )
               : undefined
+        }
+        resolveDragPath={async () =>
+          resolvePathLinkTarget((await resolveHostPath()).absolutePath, cwd ?? "")
         }
         resolveCopyPaths={async () =>
           markdownFileCopyPaths(fileLinkMeta, await resolveHostPath(), cwd)

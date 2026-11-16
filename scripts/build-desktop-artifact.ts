@@ -2003,14 +2003,8 @@ export const preflightMacDesktopBuild = Effect.fn("preflightMacDesktopBuild")(fu
 function windowsVswherePrerequisiteScript(arch: typeof BuildArch.Type): string {
   const toolComponents =
     arch === "arm64"
-      ? [
-          "Microsoft.VisualStudio.Component.VC.Tools.ARM64",
-          "Microsoft.VisualStudio.Component.VC.Tools.ARM64.Spectre",
-        ]
-      : [
-          "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-          "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre",
-        ];
+      ? ["Microsoft.VisualStudio.Component.VC.Tools.ARM64"]
+      : ["Microsoft.VisualStudio.Component.VC.Tools.x86.x64"];
   const spectreArch = arch === "arm64" ? "arm64" : "x64";
   return [
     "$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\\Installer\\vswhere.exe'",
@@ -2261,8 +2255,6 @@ export const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBund
       });
     }
 
-    const probeEnv = { ...process.env };
-    delete probeEnv.ELECTRON_RUN_AS_NODE;
     yield* runCommand(
       ChildProcess.make(
         process.execPath,
@@ -2272,7 +2264,7 @@ export const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBund
           cwd: probeApp,
           stdout: "pipe",
           stderr: "pipe",
-          env: { ...probeEnv, NODE_PATH: "" },
+          env: { ...process.env, NODE_PATH: "" },
         },
       ),
       {

@@ -3,17 +3,13 @@ import { WorkerPoolManager } from "@pierre/diffs/worker";
 import DiffsWorker from "@pierre/diffs/worker/worker.js?worker";
 import * as Schema from "effect/Schema";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import {
-  getRenderedAppearance,
-  readSyntaxThemePreference,
-  subscribeRenderedAppearance,
-} from "../hooks/useTheme";
-import { DIFF_THEME_NAME_VALUES, resolveDiffThemeName } from "../lib/diffRendering";
+import { getRenderedAppearance, subscribeRenderedAppearance } from "../hooks/useTheme";
+import { resolveDiffThemeName } from "../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../lib/syntaxHighlighting";
 
 export class DiffWorkerError extends Schema.TaggedError<DiffWorkerError>()("DiffWorkerError", {
   operation: Schema.Literals(["create-worker", "get-render-options", "set-render-options"]),
-  themeName: Schema.Literals(DIFF_THEME_NAME_VALUES),
+  themeName: Schema.Literals(["pierre-dark", "t3-light"]),
   cause: Schema.Defect(),
 }) {
   override get message(): string {
@@ -37,7 +33,7 @@ let sharedWorkerPool:
   | undefined;
 
 function applyDiffWorkerTheme(pool: WorkerPoolManager) {
-  const themeName = resolveDiffThemeName(getRenderedAppearance(), readSyntaxThemePreference());
+  const themeName = resolveDiffThemeName(getRenderedAppearance());
   let operation: DiffWorkerError["operation"] = "get-render-options";
   void (async () => {
     try {
@@ -54,7 +50,7 @@ function applyDiffWorkerTheme(pool: WorkerPoolManager) {
 // The pool follows the rendered appearance for as long as it lives, so it never depends on a
 // mounted provider to carry a theme change across.
 function createDiffWorkerPool(poolSize: number) {
-  const themeName = resolveDiffThemeName(getRenderedAppearance(), readSyntaxThemePreference());
+  const themeName = resolveDiffThemeName(getRenderedAppearance());
   const pool = new WorkerPoolManager(
     {
       workerFactory: () => {

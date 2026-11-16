@@ -157,7 +157,6 @@ import {
   ReviewBranchCommitsResult,
   ReviewDiffFileContentsInput,
   ReviewDiffFileContentsResult,
-  ReviewDiffFileActionInput,
   ReviewDiffPreviewError,
   ReviewDiffPreviewInput,
   ReviewDiffPreviewResult,
@@ -476,7 +475,6 @@ export const WS_METHODS = {
   reviewGetBranchCommits: "review.getBranchCommits",
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
-  reviewRunDiffFileAction: "review.runDiffFileAction",
 
   terminalOpen: "terminal.open",
   terminalAttach: "terminal.attach",
@@ -1640,11 +1638,6 @@ const WsReviewGetDiffFileContentsRpc = Rpc.make(WS_METHODS.reviewGetDiffFileCont
   error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
 });
 
-const WsReviewRunDiffFileActionRpc = Rpc.make(WS_METHODS.reviewRunDiffFileAction, {
-  payload: ReviewDiffFileActionInput,
-  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
-});
-
 const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -2282,7 +2275,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsReviewGetBranchCommitsRpc,
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
-  WsReviewRunDiffFileActionRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalObserveRpc,

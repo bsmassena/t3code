@@ -329,11 +329,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["colors borders interface"],
   },
   {
-    id: "syntax-highlighting",
-    title: "Syntax highlighting",
-    to: "/settings/appearance",
-  },
-  {
     // Prefixed because the slider control already owns the `glass-opacity` id.
     id: "setting-glass-opacity",
     title: "Glass opacity",
@@ -629,6 +624,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Transcription hardware and model unloading",
     to: "/settings/voice",
     searchTerms: ["speech voice stt advanced gpu cpu acceleration memory unload idle"],
+  },
+  {
+    id: "speech-streaming",
+    title: "Streaming transcription",
+    to: "/settings/voice",
+    searchTerms: ["speech voice stt advanced native live preview batch after stopping slow lag"],
   },
   {
     id: "microphone-test",

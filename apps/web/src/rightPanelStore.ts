@@ -105,8 +105,6 @@ export interface ThreadPanelVisibility {
 }
 
 interface RightPanelStoreState {
-  maximized: boolean;
-  toggleMaximized: () => void;
   byThreadKey: Record<string, ThreadRightPanelState>;
   pendingMaximizeThreadKey: string | null;
   requestMaximize: (ref: ScopedThreadRef) => void;
@@ -639,8 +637,6 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
 export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set, get) => ({
-      maximized: false,
-      toggleMaximized: () => set((state) => ({ maximized: !state.maximized })),
       byThreadKey: {},
       pendingMaximizeThreadKey: null,
       requestMaximize: (ref) => set({ pendingMaximizeThreadKey: scopedThreadKey(ref) }),
@@ -1195,7 +1191,6 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       partialize: (state) => ({
-        maximized: state.maximized,
         byThreadKey: Object.fromEntries(
           Object.entries(state.byThreadKey).flatMap(([threadKey, threadState]) =>
             isPullRequestsPanelKey(threadKey)

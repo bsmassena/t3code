@@ -30,12 +30,10 @@ import {
   T3_PROJECT_FILE_NAME,
   type ReviewBranchCommitsInput,
   type ReviewDiffChangeType,
-  type ReviewDiffFileActionInput,
   type ReviewDiffFileContentsInput,
   type ReviewDiffPreviewInput,
   type ReviewDiffFileStat,
   type ReviewDiffPreviewSource,
-  type ReviewLocalDiffPreviewSource,
   type VcsRef,
 } from "@t3tools/contracts";
 import { dedupeRemoteBranchesWithLocalMatches } from "@t3tools/shared/git";
@@ -4096,8 +4094,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         "--no-show-signature",
         "--format=%H%x00%s%x00%cI",
         `--max-count=${REVIEW_BRANCH_COMMIT_LIMIT + 1}`,
-        // On the base branch itself the range is empty, so list the latest commits instead.
-        mergeBase === "HEAD" || mergeBase === head.stdout.trim() ? "HEAD" : `${mergeBase}..HEAD`,
+        `${mergeBase}..HEAD`,
       ],
       {
         maxOutputBytes: REVIEW_BRANCH_COMMIT_MAX_OUTPUT_BYTES,
@@ -4253,7 +4250,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const result = yield* executeGit(
         "GitVcsDriver.getReviewDiffPreview.stat",
         cwd,
-        [...args, ...(ref ? [ref] : []), "--", ...pathArgs],
+        [...args, ref, "--", ...pathArgs],
         { allowNonZeroExit: true, maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES, env },
       );
       if (result.exitCode === 0) return { ref, files: parseReviewNumstat(result.stdout) };
@@ -4288,61 +4285,41 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const patch = yield* executeGit(
         "GitVcsDriver.getReviewDiffPreview.patch",
         cwd,
-        [...diffArgs, "--patch", ...(stat.ref ? [stat.ref] : []), "--", ...pathArgs],
+        [...diffArgs, "--patch", stat.ref, "--", ...pathArgs],
         { maxOutputBytes: patchLimit, appendTruncationMarker: true, env },
       );
       return { ...patch, files: stat.files };
     });
-    const emptyLocalDiff = { stdout: "", stdoutTruncated: false, files: [] };
-    const [[dirtyTrackedResult, baseResult, unstagedTrackedResult], stagedResult] =
-      yield* Effect.all(
-        [
-          Effect.gen(function* () {
-            const untracked = input.trackedOnly
-              ? { env: undefined, omitted: false }
-              : yield* prepareUntrackedReviewIndex(cwd, pathArgs, input.file?.path);
-            // Untracked files left out make the file list partial, so the bounded patch is sent instead.
-            const complete = untracked !== null && !untracked.omitted;
-            const metadataOnly = input.metadataOnly === true && !input.file && complete;
-            const [dirty, base] =
-              review.mergeBase === dirtyRef
-                ? yield* readTrackedDiff(dirtyRef, untracked?.env, metadataOnly).pipe(
-                    Effect.map((result) => [result, result] as const),
-                  )
-                : yield* Effect.all(
-                    [
-                      readTrackedDiff(dirtyRef, untracked?.env, metadataOnly),
-                      readTrackedDiff(review.mergeBase, untracked?.env, metadataOnly),
-                    ],
-                    { concurrency: 2 },
-                  );
-            // An empty ref diffs the index against the working tree.
-            const unstaged = input.includeLocalSources
-              ? yield* readTrackedDiff("", untracked?.env)
-              : emptyLocalDiff;
-            if (complete) return [dirty, base, unstaged] as const;
-            const incomplete = (ref: string | null, result: typeof dirty) =>
-              ref === null ? result : { ...result, files: undefined, stdoutTruncated: true };
-            return [
-              incomplete(dirtyRef, dirty),
-              incomplete(review.mergeBase, base),
-              incomplete("", unstaged),
-            ] as const;
-          }).pipe(Effect.scoped),
-          input.includeLocalSources ? readTrackedDiff("--cached") : Effect.succeed(emptyLocalDiff),
-        ],
-        { concurrency: 2 },
-      );
+    const [dirtyTrackedResult, baseResult] = yield* Effect.gen(function* () {
+      const untracked = input.trackedOnly
+        ? { env: undefined, omitted: false }
+        : yield* prepareUntrackedReviewIndex(cwd, pathArgs, input.file?.path);
+      // Untracked files left out make the file list partial, so the bounded patch is sent instead.
+      const complete = untracked !== null && !untracked.omitted;
+      const metadataOnly = input.metadataOnly === true && !input.file && complete;
+      const [dirty, base] =
+        review.mergeBase === dirtyRef
+          ? yield* readTrackedDiff(dirtyRef, untracked?.env, metadataOnly).pipe(
+              Effect.map((result) => [result, result] as const),
+            )
+          : yield* Effect.all(
+              [
+                readTrackedDiff(dirtyRef, untracked?.env, metadataOnly),
+                readTrackedDiff(review.mergeBase, untracked?.env, metadataOnly),
+              ],
+              { concurrency: 2 },
+            );
+      if (complete) return [dirty, base] as const;
+      const incomplete = (ref: string | null, result: typeof dirty) =>
+        ref === null ? result : { ...result, files: undefined, stdoutTruncated: true };
+      return [incomplete(dirtyRef, dirty), incomplete(review.mergeBase, base)] as const;
+    }).pipe(Effect.scoped);
     const dirtyFiles = dirtyTrackedResult.files;
     const baseFiles = baseResult.files;
     const dirtyDiff = dirtyTrackedResult.stdout;
     const baseDiff = baseResult.stdout;
-    const unstagedDiff = unstagedTrackedResult.stdout;
-    const stagedDiff = stagedResult.stdout;
-    const [dirtyDiffHash, unstagedDiffHash, stagedDiffHash, baseDiffHash] = yield* Effect.all([
+    const [dirtyDiffHash, baseDiffHash] = yield* Effect.all([
       hashDiff(dirtyDiff, dirtyFiles ?? []),
-      hashDiff(unstagedDiff, unstagedTrackedResult.files ?? []),
-      hashDiff(stagedDiff, stagedResult.files),
       hashDiff(baseDiff, baseFiles ?? []),
     ]);
 
@@ -4376,28 +4353,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           : {}),
       },
     ];
-    const localSources: ReviewLocalDiffPreviewSource[] = [
-      {
-        id: "unstaged",
-        kind: "unstaged",
-        title: "Unstaged changes",
-        baseRef: null,
-        headRef: null,
-        diff: unstagedDiff,
-        diffHash: unstagedDiffHash,
-        truncated: unstagedTrackedResult.stdoutTruncated,
-      },
-      {
-        id: "staged",
-        kind: "staged",
-        title: "Staged changes",
-        baseRef: "HEAD",
-        headRef: null,
-        diff: stagedDiff,
-        diffHash: stagedDiffHash,
-        truncated: stagedResult.stdoutTruncated,
-      },
-    ];
 
     return {
       cwd: input.cwd,
@@ -4406,7 +4361,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ? sources.filter((source) => source.kind === input.sourceKind)
         : sources,
       ...(input.trackedOnly ? { incomplete: true } : {}),
-      ...(input.includeLocalSources ? { localSources } : {}),
     };
   });
 
@@ -4440,22 +4394,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       "GitVcsDriver.getReviewDiffFileContents.revision",
       input.cwd,
       ["show", "--end-of-options", `${revision}:${relativePath}`],
-      { maxOutputBytes: REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES },
-    );
-    if (result.stdout.includes("\0")) {
-      return yield* reviewDiffFileError(input, `Cannot expand binary file '${relativePath}'.`);
-    }
-    return result.stdout;
-  });
-
-  const readReviewFileFromIndex = Effect.fn("readReviewFileFromIndex")(function* (
-    input: ReviewDiffFileContentsInput,
-    relativePath: string,
-  ) {
-    const result = yield* executeGit(
-      "GitVcsDriver.getReviewDiffFileContents.index",
-      input.cwd,
-      ["show", `:${relativePath}`],
       { maxOutputBytes: REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES },
     );
     if (result.stdout.includes("\0")) {
@@ -4571,21 +4509,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const getReviewDiffFileContents = Effect.fn("getReviewDiffFileContents")(function* (
     input: ReviewDiffFileContentsInput,
   ) {
-    if (input.sourceKind === "staged") {
-      const [oldContents, newContents] = yield* Effect.all(
-        [
-          input.changeType === "new"
-            ? Effect.succeed("")
-            : readReviewFileAtRevision(input, input.baseRef ?? "HEAD", input.oldPath),
-          input.changeType === "deleted"
-            ? Effect.succeed("")
-            : readReviewFileFromIndex(input, input.newPath),
-        ],
-        { concurrency: 2 },
-      );
-      return { oldContents, newContents };
-    }
-
     const repositoryRoot = yield* runGitStdout(
       "GitVcsDriver.getReviewDiffFileContents.repositoryRoot",
       input.cwd,
@@ -4619,16 +4542,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       return { oldContents, newContents };
     }
     const oldRevision =
-      input.sourceKind === "working-tree" || input.sourceKind === "unstaged"
+      input.sourceKind === "working-tree"
         ? (input.baseRef ?? "HEAD")
         : (yield* resolveReviewMergeBase(input.cwd, null, input.baseRef ?? undefined)).mergeBase;
     const [oldContents, newContents] = yield* Effect.all(
       [
         input.changeType === "new"
           ? Effect.succeed("")
-          : input.sourceKind === "unstaged"
-            ? readReviewFileFromIndex(input, input.oldPath)
-            : readReviewFileAtRevision(input, oldRevision, input.oldPath),
+          : readReviewFileAtRevision(input, oldRevision, input.oldPath),
         input.changeType === "deleted"
           ? Effect.succeed("")
           : readWorkingTreeReviewFile(input, repositoryRoot),
@@ -4636,103 +4557,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       { concurrency: 2 },
     );
     return { oldContents, newContents };
-  });
-
-  const runReviewDiffFileAction = Effect.fn("runReviewDiffFileAction")(function* (
-    input: ReviewDiffFileActionInput,
-  ) {
-    const repositoryRoot = yield* runGitStdout(
-      "GitVcsDriver.runReviewDiffFileAction.repositoryRoot",
-      input.cwd,
-      ["rev-parse", "--show-toplevel"],
-    ).pipe(Effect.map((value) => value.trim()));
-    const requestedFilePaths = [...new Set([input.filePath, input.previousFilePath])].filter(
-      (filePath): filePath is string => filePath !== undefined,
-    );
-    const invalidPath = requestedFilePaths.find(
-      (filePath) => !isPathWithinRoot(repositoryRoot, path.resolve(repositoryRoot, filePath)),
-    );
-    if (!repositoryRoot || invalidPath) {
-      return yield* new GitCommandError({
-        operation: "GitVcsDriver.runReviewDiffFileAction",
-        command: "git",
-        cwd: input.cwd,
-        detail: `Diff file '${invalidPath ?? input.filePath}' resolves outside the review workspace.`,
-      });
-    }
-
-    const filePaths = requestedFilePaths.map((filePath) =>
-      path
-        .relative(repositoryRoot, path.resolve(repositoryRoot, filePath))
-        .split(path.sep)
-        .join("/"),
-    );
-    if (filePaths.some((filePath) => !filePath)) {
-      return yield* new GitCommandError({
-        operation: "GitVcsDriver.runReviewDiffFileAction",
-        command: "git",
-        cwd: input.cwd,
-        detail: `Diff file '${input.filePath}' is not an exact changed file in this repository.`,
-      });
-    }
-    const statusResult = yield* executeGit(
-      "GitVcsDriver.runReviewDiffFileAction.status",
-      repositoryRoot,
-      [
-        "--literal-pathspecs",
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-        "--",
-        ...filePaths,
-      ],
-      { maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES },
-    );
-    const changedPaths = new Set<string>();
-    const untrackedPaths = new Set<string>();
-    const statusRecords = statusResult.stdout.split("\0");
-    for (let index = 0; index < statusRecords.length; index += 1) {
-      const record = statusRecords[index];
-      if (!record || record.length < 4) continue;
-      const status = new Set(record.slice(0, 2));
-      changedPaths.add(record.slice(3));
-      if (record.startsWith("?? ")) untrackedPaths.add(record.slice(3));
-      if (status.has("R") || status.has("C")) {
-        const previousPath = statusRecords[index + 1];
-        if (previousPath) changedPaths.add(previousPath);
-        index += 1;
-      }
-    }
-    const nonFilePath = filePaths.find((filePath) => !filePath || !changedPaths.has(filePath));
-    if (nonFilePath !== undefined) {
-      return yield* new GitCommandError({
-        operation: "GitVcsDriver.runReviewDiffFileAction",
-        command: "git",
-        cwd: input.cwd,
-        detail: `Diff file '${nonFilePath || input.filePath}' is not an exact changed file in this repository.`,
-      });
-    }
-
-    const args =
-      input.action === "stage"
-        ? ["--literal-pathspecs", "add", "--", ...filePaths]
-        : input.action === "unstage"
-          ? ["--literal-pathspecs", "reset", "--", ...filePaths]
-          : input.action === "revert-staged"
-            ? [
-                "--literal-pathspecs",
-                "restore",
-                "--source=HEAD",
-                "--staged",
-                "--worktree",
-                "--",
-                ...filePaths,
-              ]
-            : filePaths.length === 1 && untrackedPaths.has(filePaths[0]!)
-              ? ["--literal-pathspecs", "clean", "-f", "--", ...filePaths]
-              : ["--literal-pathspecs", "restore", "--worktree", "--", ...filePaths];
-    yield* executeGit(`GitVcsDriver.runReviewDiffFileAction.${input.action}`, repositoryRoot, args);
   });
 
   const readConfigValue: GitVcsDriver.GitVcsDriver["Service"]["readConfigValue"] = (cwd, key) =>
@@ -6372,7 +6196,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     getReviewBranchCommits,
     getReviewDiffPreview,
     getReviewDiffFileContents,
-    runReviewDiffFileAction,
     readConfigValue,
     readBranchBase,
     resolveBranchName,

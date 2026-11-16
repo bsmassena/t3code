@@ -3,7 +3,6 @@ import type { ProjectContentMatch } from "@t3tools/contracts";
 import { memo, Suspense, use, type CSSProperties } from "react";
 
 import { resolveDiffThemeName } from "~/lib/diffRendering";
-import type { SyntaxThemePreference } from "~/syntaxTheme";
 import { getSyntaxHighlighterPromise } from "~/lib/syntaxHighlighting";
 
 import { RenderErrorBoundary } from "../RenderErrorBoundary";
@@ -131,13 +130,10 @@ function firstLineTokens(
   line: string,
   language: string,
   theme: "light" | "dark",
-  syntaxTheme: SyntaxThemePreference,
 ) {
   try {
-    return highlighter.codeToTokens(line, {
-      lang: language,
-      theme: resolveDiffThemeName(theme, syntaxTheme),
-    }).tokens[0];
+    return highlighter.codeToTokens(line, { lang: language, theme: resolveDiffThemeName(theme) })
+      .tokens[0];
   } catch {
     return undefined;
   }
@@ -148,16 +144,9 @@ function SyntaxHighlightedTokens(props: {
   readonly language: string;
   readonly ranges: ReadonlyArray<Range>;
   readonly theme: "light" | "dark";
-  readonly syntaxTheme: SyntaxThemePreference;
 }) {
   const highlighter = use(getSyntaxHighlighterPromise(props.language));
-  const tokens = firstLineTokens(
-    highlighter,
-    props.line,
-    props.language,
-    props.theme,
-    props.syntaxTheme,
-  );
+  const tokens = firstLineTokens(highlighter, props.line, props.language, props.theme);
 
   return tokens ? (
     <HighlightedTokens line={props.line} ranges={props.ranges} tokens={tokens} />
@@ -174,7 +163,6 @@ export const HighlightedSearchLine = memo(function HighlightedSearchLine(props: 
   readonly match: ProjectContentMatch;
   readonly path: string;
   readonly theme: "light" | "dark";
-  readonly syntaxTheme: SyntaxThemePreference;
 }) {
   const ranges = normalizeRanges(props.match);
   const fallback = (
@@ -193,7 +181,6 @@ export const HighlightedSearchLine = memo(function HighlightedSearchLine(props: 
           language={getFiletypeFromFileName(props.path)}
           ranges={ranges}
           theme={props.theme}
-          syntaxTheme={props.syntaxTheme}
         />
       </Suspense>
     </RenderErrorBoundary>

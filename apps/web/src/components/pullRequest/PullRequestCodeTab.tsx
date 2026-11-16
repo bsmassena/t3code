@@ -66,7 +66,7 @@ import {
 import { observeIntersection } from "~/lib/observeIntersection";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useClientSettings, updateClientSettings } from "~/hooks/useSettings";
-import { useTheme, useRenderedAppearance } from "~/hooks/useTheme";
+import { useRenderedAppearance } from "~/hooks/useTheme";
 import { areAllDiffFilesCollapsed } from "~/lib/diffCollapse";
 import {
   pullRequestFindingKey,
@@ -425,9 +425,7 @@ function PullRequestCodeTab({
   onRevealSettled?: ((revealUrl: string) => void) | undefined;
   revealRequest?: { readonly path: string; readonly nonce: number } | null;
 }) {
-  const { syntaxTheme } = useTheme();
   const resolvedTheme = useRenderedAppearance();
-  const diffThemeName = resolveDiffThemeName(resolvedTheme, syntaxTheme);
   // Initialize the shared tokenizer and workers while the diff request is still pending.
   useDiffWorkerPool();
   const settings = useClientSettings((settings) => ({
@@ -654,7 +652,7 @@ function PullRequestCodeTab({
     sourceFileStats,
   } = diffModel(
     loadedSlices,
-    `pull-request:${scopeKey}:${diffThemeName}:${ignoreWhitespace}`,
+    `pull-request:${scopeKey}:${resolvedTheme}:${ignoreWhitespace}`,
     ignoreWhitespace,
   );
   const withheldResults = useAtomValue(
@@ -685,7 +683,7 @@ function PullRequestCodeTab({
         nextCursor: null,
         omittedFileStats: [],
       },
-      `pull-request:${scopeKey}:${diffThemeName}:withheld:${path}`,
+      `pull-request:${scopeKey}:${resolvedTheme}:withheld:${path}`,
       // Cut lines can match up to the cut and differ after it; hiding them would drop changes.
       false,
     );
@@ -1161,7 +1159,7 @@ function PullRequestCodeTab({
     diffStyle: diffLayout === "split" ? ("split" as const) : ("unified" as const),
     lineDiffType: "none" as const,
     overflow: wordWrap ? ("wrap" as const) : ("scroll" as const),
-    theme: diffThemeName,
+    theme: resolveDiffThemeName(resolvedTheme),
     preferredHighlighter: PREFERRED_HIGHLIGHTER,
     themeType: resolvedTheme,
     stickyHeaders: true,

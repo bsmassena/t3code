@@ -1,8 +1,3 @@
-import {
-  DEFAULT_SYNTAX_THEME_PREFERENCE,
-  isSyntaxThemePreference,
-  type SyntaxThemePreference,
-} from "../../syntaxTheme";
 import type { CSSProperties } from "react";
 import { useState } from "react";
 import {
@@ -41,11 +36,6 @@ import { AdvancedSettings } from "./AdvancedSettings";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 import { TypographySection } from "./TypographySettings";
 import { ThreadDetailsItemsRow } from "./ThreadDetailsItemsRow";
-
-const SYNTAX_THEME_LABELS: Record<SyntaxThemePreference, string> = {
-  "t3-code": "T3 Code",
-  "vs-code": "VS Code",
-};
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -100,8 +90,6 @@ export function AppearanceSettingsPanel() {
     refreshTheme,
     resolvedTheme,
     setAppearanceMode,
-    setSyntaxTheme,
-    syntaxTheme,
     setTheme,
     setThemeHalf,
     theme,
@@ -220,38 +208,6 @@ export function AppearanceSettingsPanel() {
                 value={settings.appearanceContrast}
               />
             </div>
-          }
-        />
-
-        <SettingsRow
-          {...searchableSetting("syntax-highlighting")}
-          description="Choose the colors used for strings, variables, functions, and other code tokens."
-          resetAction={
-            syntaxTheme !== DEFAULT_SYNTAX_THEME_PREFERENCE ? (
-              <SettingResetButton
-                label="syntax highlighting"
-                onClick={() => setSyntaxTheme(DEFAULT_SYNTAX_THEME_PREFERENCE)}
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={syntaxTheme}
-              onValueChange={(value) => {
-                if (isSyntaxThemePreference(value)) setSyntaxTheme(value);
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Syntax highlighting">
-                <SelectValue>{SYNTAX_THEME_LABELS[syntaxTheme]}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                {Object.entries(SYNTAX_THEME_LABELS).map(([value, label]) => (
-                  <SelectItem hideIndicator key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
           }
         />
 

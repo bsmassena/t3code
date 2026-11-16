@@ -713,7 +713,6 @@ export default function ChatView(props: ChatViewProps) {
   const isRevertingCheckpoint = useComposerDraftStore((store) =>
     store.rewindingThreadKeys.has(routeThreadKey),
   );
-  const rightPanelMaximizedPreference = useRightPanelStore((state) => state.maximized);
 
   const workspaceFileDragRouteKey = `${routeThreadKey}:${draftId ?? ""}`;
   const [workspaceFileDragRoute, setWorkspaceFileDragRoute] = useState(workspaceFileDragRouteKey);
@@ -1078,8 +1077,7 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelState = useRightPanelStore((state) =>
     selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
   );
-  const shouldUsePlanSidebarSheet =
-    prefersPlanSidebarSheet && !(rightPanelState.isOpen && rightPanelMaximizedPreference);
+  const shouldUsePlanSidebarSheet = prefersPlanSidebarSheet && rightPanelState.maximized !== true;
   const activeRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
   );
@@ -1124,7 +1122,8 @@ export default function ChatView(props: ChatViewProps) {
   );
   const canMaximizeRightPanel = rightPanelOpen;
   // An embedded side chat has no panel; a stale maximized flag would hide its own column.
-  const rightPanelMaximized = !embedded && canMaximizeRightPanel && rightPanelMaximizedPreference;
+  const rightPanelMaximized =
+    !embedded && canMaximizeRightPanel && rightPanelState.maximized === true;
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUsePlanSidebarSheet;
   const [threadPanelPopoverHandle] = useState(PopoverCreateHandle);
   const [chatCanvasStore] = useState(createChatCanvasStore);
@@ -2056,7 +2055,7 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     if (!canMaximizeRightPanel) return;
     if (useRightPanelStore.getState().consumeMaximizeRequest(routeThreadRef)) {
-      useRightPanelStore.setState({ maximized: true });
+      useRightPanelStore.getState().setMaximized(routeThreadRef, true);
     }
   }, [canMaximizeRightPanel, routeThreadRef]);
   const {
@@ -2193,7 +2192,7 @@ export default function ChatView(props: ChatViewProps) {
           if (document.querySelector("[data-mcp-app-fullscreen]") !== null) return;
           if (
             !isInSideChatPane(document.activeElement) &&
-            shouldRefocusComposerOnWindowFocus(document.activeElement)
+            shouldRefocusComposerOnWindowFocus(document.activeElement, document.getSelection())
           ) {
             focusComposerStable();
           }
@@ -2833,7 +2832,7 @@ export default function ChatView(props: ChatViewProps) {
   });
   // A maximized panel covers the terminal drawer the command runs in.
   const runSideChatShellCommandStable = useStableCallback((command: string) => {
-    useRightPanelStore.setState({ maximized: false });
+    if (activeThreadRef) useRightPanelStore.getState().setMaximized(activeThreadRef, false);
     runShellCommandStable(command);
   });
   // Main-thread surfaces show this reason; `/side` sent anyway gets it as a toast.

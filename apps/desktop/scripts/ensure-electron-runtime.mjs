@@ -155,9 +155,6 @@ function downloadElectronRuntime(electronDir, version) {
     ]);
     if (hostPlatform === "darwin") {
       runChecked("ditto", ["-x", "-k", zipPath, NodePath.join(electronDir, "dist")]);
-    } else if (hostPlatform === "win32") {
-      NodeFS.mkdirSync(NodePath.join(electronDir, "dist"), { recursive: true });
-      runChecked("tar.exe", ["-xf", zipPath, "-C", NodePath.join(electronDir, "dist")]);
     } else {
       runChecked("python3", [
         "-c",

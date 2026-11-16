@@ -119,64 +119,6 @@ describe("ReviewService", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("attributes file-content workspace violations to the file-content operation", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
-      const outsideRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-outside-" });
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
-      const detectCalls: Array<{ readonly cwd: string }> = [];
-
-      const error = yield* Effect.gen(function* () {
-        const review = yield* ReviewService.ReviewService;
-        return yield* review
-          .getDiffFileContents({
-            cwd: outsideRoot,
-            sourceKind: "working-tree",
-            changeType: "change",
-            baseRef: "HEAD",
-            headRef: null,
-            oldPath: "file.ts",
-            newPath: "file.ts",
-          })
-          .pipe(Effect.flip);
-      }).pipe(Effect.provide(layer({ workspaceRoot, baseDir, detectCalls })));
-
-      assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
-      assert.strictEqual(error.operation, "ReviewService.getDiffFileContents");
-      assert.match(
-        "detail" in error ? error.detail : "",
-        /must stay within the configured workspace root/,
-      );
-      assert.deepStrictEqual(detectCalls, []);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("rejects file actions outside the configured workspace roots", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
-      const outsideRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-outside-" });
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
-      const detectCalls: Array<{ readonly cwd: string }> = [];
-
-      const error = yield* Effect.gen(function* () {
-        const review = yield* ReviewService.ReviewService;
-        return yield* review
-          .runDiffFileAction({ cwd: outsideRoot, filePath: "file.ts", action: "stage" })
-          .pipe(Effect.flip);
-      }).pipe(Effect.provide(layer({ workspaceRoot, baseDir, detectCalls })));
-
-      assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
-      assert.strictEqual(error.operation, "ReviewService.runDiffFileAction");
-      assert.match(
-        "detail" in error ? error.detail : "",
-        /must stay within the configured workspace root/,
-      );
-      assert.deepStrictEqual(detectCalls, []);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
   it.effect("allows previous custom worktree locations but never a filesystem root", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

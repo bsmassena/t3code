@@ -106,7 +106,7 @@ function OpenContentSearchDialog(props: {
   readonly target: ActiveProjectTarget;
 }) {
   const { target } = props;
-  const { syntaxTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const renderedAppearance = useRenderedAppearance();
   const [query, setQuery] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
@@ -262,7 +262,7 @@ function OpenContentSearchDialog(props: {
                     <PierreEntryIcon
                       pathValue={group.path}
                       kind="file"
-                      theme={renderedAppearance}
+                      theme={resolvedTheme}
                       className="size-3.5"
                     />
                     <span className="font-medium text-foreground">{path.name}</span>
@@ -298,7 +298,6 @@ function OpenContentSearchDialog(props: {
                           match={match}
                           path={group.path}
                           theme={renderedAppearance}
-                          syntaxTheme={syntaxTheme}
                         />
                       </span>
                     </button>

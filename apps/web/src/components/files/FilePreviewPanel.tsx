@@ -66,7 +66,7 @@ import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
-import { resolveDiffThemeName, type DiffThemeName } from "~/lib/diffRendering";
+import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 import { cn, isMacPlatform } from "~/lib/utils";
 import { requestWorkspaceFocus } from "~/lib/workspaceFocus";
@@ -777,7 +777,6 @@ interface EditableFileSurfaceProps {
   composerDraftTarget: ScopedThreadRef | DraftId;
   contents: string;
   resolvedTheme: "light" | "dark";
-  diffThemeName: DiffThemeName;
   revealRequestId: number;
   wordWrap: boolean;
   onPostRender: FilePostRender;
@@ -798,7 +797,6 @@ function EditableFileSurface({
   composerDraftTarget,
   contents,
   resolvedTheme,
-  diffThemeName,
   revealRequestId,
   wordWrap,
   onPostRender,
@@ -1019,7 +1017,7 @@ function EditableFileSurface({
               onLineSelectionChange: setSelectedRange,
               onLineSelectionEnd: handleLineSelectionEnd,
               overflow: wordWrap ? "wrap" : "scroll",
-              theme: diffThemeName,
+              theme: resolveDiffThemeName(resolvedTheme),
               preferredHighlighter: PREFERRED_HIGHLIGHTER,
               themeType: resolvedTheme,
               unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
@@ -1097,7 +1095,6 @@ function RenderedMarkdownSurface({
 }: Omit<
   EditableFileSurfaceProps,
   | "resolvedTheme"
-  | "diffThemeName"
   | "composerDraftTarget"
   | "revealLine"
   | "revealRequestId"
@@ -1181,8 +1178,7 @@ export default function FilePreviewPanel({
   const relativePath =
     attachment === undefined ? resolveFilePreviewPath(requestedPath, cwd) : requestedPath;
   const draft = typeof composerDraftTarget === "string";
-  const { resolvedTheme, syntaxTheme } = useTheme();
-  const diffThemeName = resolveDiffThemeName(resolvedTheme, syntaxTheme);
+  const { resolvedTheme } = useTheme();
   const defaultWordWrap = useClientSettings((settings) => settings.wordWrap);
   const [wordWrapOverride, setWordWrapOverride] = useState<boolean | null>(null);
   const wordWrap = wordWrapOverride ?? defaultWordWrap;
@@ -1745,7 +1741,7 @@ export default function FilePreviewPanel({
             ) : (
               <DiffWorkerPoolProvider>
                 <EditableFileSurface
-                  key={`${relativePath}:${diffThemeName}`}
+                  key={`${relativePath}:${resolvedTheme}`}
                   environmentId={environmentId}
                   projectId={projectId}
                   cwd={cwd}
@@ -1753,7 +1749,6 @@ export default function FilePreviewPanel({
                   composerDraftTarget={composerDraftTarget}
                   contents={file.data.contents}
                   resolvedTheme={resolvedTheme}
-                  diffThemeName={diffThemeName}
                   revealRequestId={revealRequestId}
                   wordWrap={wordWrap}
                   onPostRender={onFilePostRender}

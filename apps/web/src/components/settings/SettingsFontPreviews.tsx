@@ -112,10 +112,9 @@ const diffPreviewHtmlAtom = Atom.family((theme: DiffThemeName) =>
 );
 
 export function CodeFontPreview() {
-  const { syntaxTheme } = useTheme();
   const resolvedTheme = useRenderedAppearance();
   const loadedHtml = AsyncResult.getOrElse(
-    useAtomValue(diffPreviewHtmlAtom(resolveDiffThemeName(resolvedTheme, syntaxTheme))),
+    useAtomValue(diffPreviewHtmlAtom(resolveDiffThemeName(resolvedTheme))),
     () => null,
   );
   // An appearance switch keeps the previous theme's preview up while the new one renders.

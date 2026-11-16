@@ -12,7 +12,6 @@ import {
   type ReviewBranchCommitsResult,
   type ReviewDiffFileContentsInput,
   type ReviewDiffFileContentsResult,
-  type ReviewDiffFileActionInput,
   type ReviewDiffPreviewError,
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewResult,
@@ -27,7 +26,6 @@ const WORKSPACE_BOUND_SUBJECTS = {
   "ReviewService.getBranchCommits": "commit list",
   "ReviewService.getDiffPreview": "diff preview",
   "ReviewService.getDiffFileContents": "diff file contents",
-  "ReviewService.runDiffFileAction": "diff action",
 } as const;
 
 export class ReviewService extends Context.Service<
@@ -42,9 +40,6 @@ export class ReviewService extends Context.Service<
     readonly getDiffFileContents: (
       input: ReviewDiffFileContentsInput,
     ) => Effect.Effect<ReviewDiffFileContentsResult, ReviewDiffPreviewError>;
-    readonly runDiffFileAction: (
-      input: ReviewDiffFileActionInput,
-    ) => Effect.Effect<void, ReviewDiffPreviewError>;
   }
 >()("t3/review/ReviewService") {}
 
@@ -149,28 +144,10 @@ export const make = Effect.gen(function* () {
     return yield* git.getReviewDiffFileContents(input);
   });
 
-  const runDiffFileAction: ReviewService["Service"]["runDiffFileAction"] = Effect.fn(
-    "ReviewService.runDiffFileAction",
-  )(function* (input) {
-    yield* assertWorkspaceBoundCwd("ReviewService.runDiffFileAction", input.cwd);
-
-    const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
-    if (handle?.kind !== "git") {
-      return yield* new VcsUnsupportedOperationError({
-        operation: "ReviewService.runDiffFileAction",
-        kind: handle?.kind ?? "unknown",
-        detail: "Per-file review actions currently require a Git repository.",
-      });
-    }
-
-    return yield* git.runReviewDiffFileAction(input);
-  });
-
   return ReviewService.of({
     getBranchCommits,
     getDiffPreview,
     getDiffFileContents,
-    runDiffFileAction,
   });
 });
 

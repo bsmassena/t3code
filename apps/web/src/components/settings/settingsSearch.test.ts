@@ -224,7 +224,6 @@ describe("searchSettings", () => {
       ["Native sessions", "providers"],
       ["CODEX_HOME path", "providers"],
       ["Shadow home path", "providers"],
-      ["Syntax highlighting", "syntax-highlighting"],
     ] as const) {
       expect(searchSettings(title)[0]?.id, title).toBe(id);
     }

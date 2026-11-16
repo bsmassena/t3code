@@ -18,7 +18,6 @@ export const ReviewDiffPreviewInput = Schema.Struct({
       sourceKind: Schema.Literals(["working-tree", "branch-range", "commit"]),
     }),
   ),
-  includeLocalSources: Schema.optionalKey(Schema.Boolean),
 });
 export type ReviewDiffPreviewInput = typeof ReviewDiffPreviewInput.Type;
 
@@ -65,17 +64,6 @@ export const ReviewDiffFileStat = Schema.Struct({
   deletions: Schema.Number,
 });
 export type ReviewDiffFileStat = typeof ReviewDiffFileStat.Type;
-export const ReviewLocalDiffPreviewSourceKind = Schema.Literals(["unstaged", "staged"]);
-export type ReviewLocalDiffPreviewSourceKind = typeof ReviewLocalDiffPreviewSourceKind.Type;
-
-export const ReviewDiffFileSourceKind = Schema.Literals([
-  "working-tree",
-  "unstaged",
-  "staged",
-  "branch-range",
-  "commit",
-]);
-export type ReviewDiffFileSourceKind = typeof ReviewDiffFileSourceKind.Type;
 
 export const ReviewDiffPreviewSource = Schema.Struct({
   id: TrimmedNonEmptyString,
@@ -92,21 +80,9 @@ export const ReviewDiffPreviewSource = Schema.Struct({
 });
 export type ReviewDiffPreviewSource = typeof ReviewDiffPreviewSource.Type;
 
-export const ReviewLocalDiffPreviewSource = Schema.Struct({
-  id: TrimmedNonEmptyString,
-  kind: ReviewLocalDiffPreviewSourceKind,
-  title: TrimmedNonEmptyString,
-  baseRef: Schema.NullOr(TrimmedNonEmptyString),
-  headRef: Schema.NullOr(TrimmedNonEmptyString),
-  diff: Schema.String,
-  diffHash: TrimmedNonEmptyString,
-  truncated: Schema.Boolean,
-});
-export type ReviewLocalDiffPreviewSource = typeof ReviewLocalDiffPreviewSource.Type;
-
 export const ReviewDiffFileContentsInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
-  sourceKind: ReviewDiffFileSourceKind,
+  sourceKind: ReviewDiffPreviewSourceKind,
   changeType: ReviewDiffChangeType,
   baseRef: Schema.NullOr(TrimmedNonEmptyString),
   headRef: Schema.NullOr(TrimmedNonEmptyString),
@@ -121,20 +97,11 @@ export const ReviewDiffFileContentsResult = Schema.Struct({
 });
 export type ReviewDiffFileContentsResult = typeof ReviewDiffFileContentsResult.Type;
 
-export const ReviewDiffFileActionInput = Schema.Struct({
-  cwd: TrimmedNonEmptyString,
-  filePath: TrimmedNonEmptyString,
-  previousFilePath: Schema.optional(TrimmedNonEmptyString),
-  action: Schema.Literals(["stage", "unstage", "revert", "revert-staged"]),
-});
-export type ReviewDiffFileActionInput = typeof ReviewDiffFileActionInput.Type;
-
 export const ReviewDiffPreviewResult = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   generatedAt: Schema.DateTimeUtc,
   sources: Schema.Array(ReviewDiffPreviewSource),
   incomplete: Schema.optionalKey(Schema.Boolean),
-  localSources: Schema.optional(Schema.Array(ReviewLocalDiffPreviewSource)),
 });
 export type ReviewDiffPreviewResult = typeof ReviewDiffPreviewResult.Type;
 
