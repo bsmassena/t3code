@@ -5,9 +5,10 @@ import { DEFAULT_SYNTAX_THEME_PREFERENCE, type SyntaxThemePreference } from "../
 
 import { READABLE_LIGHT_THEME_NAME } from "./readableSyntaxTheme";
 
-export const DIFF_THEME_NAMES = {
+// T3 Code light uses a darker pierre-light so syntax stays readable on every code surface.
+const DIFF_THEME_NAMES = {
   "t3-code": {
-    light: "pierre-light",
+    light: READABLE_LIGHT_THEME_NAME,
     dark: "pierre-dark",
   },
   "vs-code": {
@@ -21,7 +22,6 @@ export const DIFF_THEME_NAME_VALUES = [
   DIFF_THEME_NAMES["t3-code"].dark,
   DIFF_THEME_NAMES["vs-code"].light,
   DIFF_THEME_NAMES["vs-code"].dark,
-  READABLE_LIGHT_THEME_NAME,
 ] as const;
 
 export type DiffThemeName = (typeof DIFF_THEME_NAME_VALUES)[number];
@@ -30,14 +30,6 @@ export function resolveDiffThemeName(
   theme: "light" | "dark",
   preference: SyntaxThemePreference = DEFAULT_SYNTAX_THEME_PREFERENCE,
 ): DiffThemeName {
-  if (
-    preference === "t3-code" &&
-    theme === "light" &&
-    typeof document !== "undefined" &&
-    document.documentElement.hasAttribute("data-redesign")
-  ) {
-    return READABLE_LIGHT_THEME_NAME;
-  }
   return DIFF_THEME_NAMES[preference][theme];
 }
 
@@ -60,14 +52,9 @@ export function fnv1a32(
 }
 
 function buildPatchCacheKey(patch: string, scope = "diff-panel"): string {
-  const normalizedPatch = patch.trim();
-  const primary = fnv1a32(normalizedPatch, FNV_OFFSET_BASIS_32, FNV_PRIME_32).toString(36);
-  const secondary = fnv1a32(
-    normalizedPatch,
-    SECONDARY_HASH_SEED,
-    SECONDARY_HASH_MULTIPLIER,
-  ).toString(36);
-  return `${scope}:${normalizedPatch.length}:${primary}:${secondary}`;
+  const primary = fnv1a32(patch, FNV_OFFSET_BASIS_32, FNV_PRIME_32).toString(36);
+  const secondary = fnv1a32(patch, SECONDARY_HASH_SEED, SECONDARY_HASH_MULTIPLIER).toString(36);
+  return `${scope}:${patch.length}:${primary}:${secondary}`;
 }
 
 export type RenderablePatch =
@@ -190,15 +177,12 @@ export function getRenderablePatch(
   cacheScope = "diff-panel",
   options: RenderablePatchOptions = {},
 ): RenderablePatch | null {
-  if (!patch) return null;
-  const normalizedPatch = patch.trim();
-  if (normalizedPatch.length === 0) return null;
+  if (!patch?.trim()) return null;
 
   try {
-    const parsedPatches = parsePatchFiles(
-      normalizedPatch,
-      buildPatchCacheKey(normalizedPatch, cacheScope),
-    );
+    const parsedPatches = parsePatchFiles(patch, {
+      cacheKeyPrefix: buildPatchCacheKey(patch, cacheScope),
+    });
     const sourceFiles = parsedPatches.flatMap((parsedPatch) => parsedPatch.files);
     const files = sourceFiles.map((file) => {
       const filtered = options.ignoreWhitespace ? hideWhitespaceChanges(file) : file;
@@ -210,13 +194,13 @@ export function getRenderablePatch(
 
     return {
       kind: "raw",
-      text: normalizedPatch,
+      text: patch,
       reason: "Unsupported diff format. Showing raw patch.",
     };
   } catch {
     return {
       kind: "raw",
-      text: normalizedPatch,
+      text: patch,
       reason: "Failed to parse patch. Showing raw patch.",
     };
   }
@@ -362,19 +346,29 @@ export function buildFileDiffUiStateKey(fileDiff: FileDiffMetadata): string {
   return `${resolveFileDiffPath(fileDiff)}:${content.length}:${primary}:${secondary}`;
 }
 
-export function getDiffCollapseIconClassName(fileDiff: FileDiffMetadata): string {
-  switch (fileDiff.type) {
-    case "new":
-      return "text-[var(--diffs-addition-base)] redesign:text-muted-foreground/80";
-    case "deleted":
-      return "text-[var(--diffs-deletion-base)] redesign:text-muted-foreground/80";
-    case "change":
-    case "rename-pure":
-    case "rename-changed":
-      return "text-[var(--diffs-modified-base)] redesign:text-muted-foreground/80";
-    default:
-      return "text-muted-foreground/80";
-  }
+const fileEntryCache = new WeakMap<
+  FileDiffMetadata,
+  { fileDiff: FileDiffMetadata; fileKey: string; fileVersion: number; uiStateKey: string }
+>();
+
+/** Give repeated blocks independent viewer state without tying identity to patch content. */
+export function buildFileDiffEntries(files: ReadonlyArray<FileDiffMetadata>) {
+  const occurrences = new Map<string, number>();
+  return files.map((fileDiff) => {
+    let entry = fileEntryCache.get(fileDiff);
+    if (!entry) {
+      entry = {
+        fileDiff,
+        fileKey: buildFileDiffIdentityKey(fileDiff),
+        fileVersion: buildFileDiffContentVersion(fileDiff),
+        uiStateKey: buildFileDiffUiStateKey(fileDiff),
+      };
+      fileEntryCache.set(fileDiff, entry);
+    }
+    const occurrence = occurrences.get(entry.fileKey) ?? 0;
+    occurrences.set(entry.fileKey, occurrence + 1);
+    return occurrence === 0 ? entry : { ...entry, fileKey: `${entry.fileKey}\u0000${occurrence}` };
+  });
 }
 
 export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
@@ -404,37 +398,37 @@ export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
   --diffs-bg-buffer-override: color-mix(in srgb, var(--code-background) 90%, var(--code-foreground));
 
   --diffs-bg-addition-override: light-dark(
-    color-mix(in srgb, var(--code-background) 50%, var(--diff-addition)),
-    color-mix(in srgb, var(--code-background) 70%, var(--diff-addition))
+    color-mix(in srgb, var(--code-background) calc(50% - var(--appearance-contrast-boost, 0%) / 4), var(--diff-addition)),
+    color-mix(in srgb, var(--code-background) calc(70% - var(--appearance-contrast-boost, 0%) / 4), var(--diff-addition))
   );
   --diffs-bg-addition-number-override: light-dark(
-    color-mix(in srgb, var(--code-background) 35%, var(--diff-addition)),
-    color-mix(in srgb, var(--code-background) 60%, var(--diff-addition))
+    color-mix(in srgb, var(--code-background) calc(35% - var(--appearance-contrast-boost, 0%) / 4), var(--diff-addition)),
+    color-mix(in srgb, var(--code-background) calc(60% - var(--appearance-contrast-boost, 0%) / 4), var(--diff-addition))
   );
   --diffs-bg-addition-hover-override: color-mix(in srgb, var(--code-background) 85%, var(--diff-addition));
-  --diffs-bg-addition-emphasis-override: color-mix(
-    in srgb,
-    var(--code-background) 80%,
-    var(--diff-addition)
+  /* Pierre resolves emphasis on the host, before the diff's overrides can inherit. */
+  /* Light emphasis stays above t3-light's readable syntax luminance floor. */
+  --diffs-bg-addition-emphasis: light-dark(
+    rgb(from var(--diffs-addition-base) r g b / 15%),
+    rgb(from var(--diffs-addition-base) r g b / calc(20% + var(--appearance-contrast-boost, 0%) / 4))
   );
 
   --diffs-bg-deletion-override: light-dark(
-    color-mix(in srgb, var(--code-background) 50%, var(--diff-deletion)),
-    color-mix(in srgb, var(--code-background) 70%, var(--diff-deletion))
+    color-mix(in srgb, var(--code-background) calc(50% - var(--appearance-contrast-boost, 0%) / 4), var(--diff-deletion)),
+    color-mix(in srgb, var(--code-background) calc(70% - var(--appearance-contrast-boost, 0%) / 4), var(--diff-deletion))
   );
   --diffs-bg-deletion-number-override: light-dark(
-    color-mix(in srgb, var(--code-background) 35%, var(--diff-deletion)),
-    color-mix(in srgb, var(--code-background) 60%, var(--diff-deletion))
+    color-mix(in srgb, var(--code-background) calc(35% - var(--appearance-contrast-boost, 0%) / 4), var(--diff-deletion)),
+    color-mix(in srgb, var(--code-background) calc(60% - var(--appearance-contrast-boost, 0%) / 4), var(--diff-deletion))
   );
   --diffs-bg-deletion-hover-override: color-mix(
     in srgb,
     var(--code-background) 85%,
     var(--diff-deletion)
   );
-  --diffs-bg-deletion-emphasis-override: color-mix(
-    in srgb,
-    var(--code-background) 80%,
-    var(--diff-deletion)
+  --diffs-bg-deletion-emphasis: light-dark(
+    rgb(from var(--diffs-deletion-base) r g b / 15%),
+    rgb(from var(--diffs-deletion-base) r g b / calc(20% + var(--appearance-contrast-boost, 0%) / 4))
   );
 
   background-color: var(--diffs-bg) !important;
@@ -451,7 +445,7 @@ export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
 [data-change-icon="deleted"] {
   color: light-dark(var(--diff-deletion-foreground), var(--diffs-deletion-base)) !important;
 }
-/* The page sets --diff-modified-icon under the New design: a muted T3 blue, so the common case stays quiet. */
+/* The page sets --diff-modified-icon to a muted T3 blue, so the common case stays quiet. */
 [data-change-icon="change"],
 [data-change-icon="rename-pure"],
 [data-change-icon="rename-changed"] {

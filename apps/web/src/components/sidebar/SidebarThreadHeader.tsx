@@ -1,5 +1,4 @@
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
-import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { ArrowUpDownIcon, FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
@@ -11,13 +10,13 @@ import {
 
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
+import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface SidebarThreadHeaderProps {
-  sortOrder?: SidebarThreadSortOrder;
-  onSortOrderChange?: (order: SidebarThreadSortOrder) => void;
-  searchFieldRef?: RefObject<HTMLDivElement | null>;
+  sortOrder: SidebarThreadSortOrder;
+  onSortOrderChange: (order: SidebarThreadSortOrder) => void;
   hasProjects: boolean;
   projectScope: ReactNode;
   onNewProject: () => void;
@@ -37,9 +36,8 @@ export interface SidebarThreadHeaderProps {
 }
 
 export function SidebarThreadHeader({
-  sortOrder = "created_at",
+  sortOrder,
   onSortOrderChange,
-  searchFieldRef,
   hasProjects,
   projectScope,
   onNewProject,
@@ -66,10 +64,7 @@ export function SidebarThreadHeader({
 
   return (
     <div className="flex items-center gap-1">
-      <div
-        ref={searchFieldRef}
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground redesign:focus-within:bg-sidebar-row-hover redesign:focus-within:text-sidebar-foreground redesign:focus-within:ring-1 redesign:focus-within:ring-inset redesign:focus-within:ring-ring/70"
-      >
+      <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-within:bg-sidebar-row-hover focus-within:text-sidebar-foreground focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/70">
         <SearchIcon className="size-4 shrink-0 text-(--sidebar-icon-color)" />
         <SidebarInput
           ref={searchInputRef}
@@ -108,26 +103,22 @@ export function SidebarThreadHeader({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center">
-        {onSortOrderChange ? (
-          <Menu>
-            <MenuTrigger
-              render={<Button size="icon-sm" variant="ghost" aria-label="Sort threads" />}
+        <Menu>
+          <MenuTrigger render={<SidebarHeaderIconButton label="Sort threads" />}>
+            <ArrowUpDownIcon />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuRadioGroup
+              value={sortOrder}
+              onValueChange={(value) => {
+                if (value === "created_at" || value === "updated_at") onSortOrderChange(value);
+              }}
             >
-              <ArrowUpDownIcon />
-            </MenuTrigger>
-            <MenuPopup align="end">
-              <MenuRadioGroup
-                value={sortOrder}
-                onValueChange={(value) => {
-                  if (value === "created_at" || value === "updated_at") onSortOrderChange(value);
-                }}
-              >
-                <MenuRadioItem value="created_at">Created / manual order</MenuRadioItem>
-                <MenuRadioItem value="updated_at">Last user message</MenuRadioItem>
-              </MenuRadioGroup>
-            </MenuPopup>
-          </Menu>
-        ) : null}
+              <MenuRadioItem value="created_at">Created / manual order</MenuRadioItem>
+              <MenuRadioItem value="updated_at">Last user message</MenuRadioItem>
+            </MenuRadioGroup>
+          </MenuPopup>
+        </Menu>
         {hasProjects ? (
           <>
             {projectScope}

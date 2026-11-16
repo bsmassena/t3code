@@ -1,238 +1,148 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ThreadId, RunId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, TurnItemId } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
-  selectThreadDiffPanelSelection,
+  resolveToolCallDiffTarget,
   useDiffPanelSessionStore,
   useDiffPanelStore,
 } from "./diffPanelStore";
 
-const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
-
 describe("diffPanelStore", () => {
-  beforeEach(() =>
+  beforeEach(() => {
     useDiffPanelStore.setState({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
-      diffFileUiStateByScopeKey: {},
-      diffRenderMode: "stacked",
-    }),
-  );
-
-  it("keeps the selected render mode in panel and persisted state", async () => {
-    useDiffPanelStore.getState().setDiffRenderMode("split");
-
-    expect(useDiffPanelStore.getState().diffRenderMode).toBe("split");
-    expect(
-      useDiffPanelStore.persist.getOptions().partialize?.(useDiffPanelStore.getState()),
-    ).toMatchObject({ diffRenderMode: "split" });
-
-    const { name, storage } = useDiffPanelStore.persist.getOptions();
-    if (!name) throw new Error("Expected diff panel persistence to have a storage name");
-    const persisted = await storage?.getItem(name);
-    expect(persisted?.state).toMatchObject({ diffRenderMode: "split" });
-
-    useDiffPanelStore.setState({ diffRenderMode: "stacked" });
-    if (persisted) await storage?.setItem(name, persisted);
-    await useDiffPanelStore.persist.rehydrate();
-
-    expect(useDiffPanelStore.getState().diffRenderMode).toBe("split");
+      viewedFileKeysByScopeKey: {},
+    });
+    useDiffPanelSessionStore.setState({ collapsedFileKeysByScopeKey: {} });
   });
 
-  it("defaults each thread to Changes without requiring git status", () => {
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: null });
-  });
-
-  it("defaults to Changes before a thread is selected", () => {
-    expect(selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, null)).toEqual({
+  it("keeps a tool call selection independent of checkpoints and allows returning to Git changes", () => {
+    const ref = { environmentId: EnvironmentId.make("env"), threadId: ThreadId.make("thread") };
+    const target = {
+      threadId: ThreadId.make("child"),
+      itemId: TurnItemId.make("edit"),
+      revision: "1",
+    };
+    const store = useDiffPanelStore.getState();
+    store.selectToolCall(ref, target);
+    store.reconcileTurnSelection(ref, []);
+    expect(useDiffPanelStore.getState().byThreadKey[scopedThreadKey(ref)]).toEqual({
+      kind: "tool-call",
+      ...target,
+    });
+    store.selectGitScope(ref, "branch");
+    expect(useDiffPanelStore.getState().byThreadKey[scopedThreadKey(ref)]).toEqual({
       kind: "branch",
       baseRef: null,
     });
   });
 
-  it("keeps a custom base when a generic open selects Changes again", () => {
-    const store = useDiffPanelStore.getState();
-    store.selectBranchBaseRef(THREAD_REF, "origin/release");
-    store.selectGitScope(THREAD_REF, "branch");
-    store.selectTurn(THREAD_REF, RunId.make("turn-1"));
-    store.selectGitScope(THREAD_REF, "branch");
-
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: "origin/release" });
-  });
-
-  it("preserves an explicit branch selection", () => {
-    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "branch");
-
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: null });
-  });
-
-  it("defaults dirty threads to the combined working tree", () => {
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF, true),
-    ).toEqual({ kind: "working-tree" });
-  });
-
-  it("clears incompatible selection fields when changing scopes", () => {
-    const store = useDiffPanelStore.getState();
-    store.selectTurn(THREAD_REF, RunId.make("turn-1"), "src/app.ts");
-    store.selectGitScope(THREAD_REF, "unstaged");
-
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "unstaged" });
-
-    useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, " origin/main ");
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: "origin/main" });
-  });
-
-  it("selects staged changes as a distinct scope", () => {
-    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "staged");
-
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "staged" });
-  });
-
-  it("selects a committed diff as a distinct scope", () => {
-    useDiffPanelStore.getState().selectCommit(THREAD_REF, " abc123 ");
-
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "commit", commitSha: "abc123" });
-  });
-
-  it("selects the combined working tree as a distinct scope", () => {
-    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "working-tree");
-
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "working-tree" });
-  });
-
-  it("increments the reveal request when opening the same turn file again", () => {
-    const turnId = RunId.make("turn-1");
-    useDiffPanelStore.getState().selectTurn(THREAD_REF, turnId, "src/app.ts");
-    useDiffPanelStore.getState().selectTurn(THREAD_REF, turnId, "src/app.ts");
-
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "turn", turnId, filePath: "src/app.ts", revealRequestId: 2 });
-  });
-
-  it("restores the selected branch base after visiting another scope", () => {
-    useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, "origin/main");
-    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "unstaged");
-    useDiffPanelStore.getState().selectGitScope(THREAD_REF, "branch");
-
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: "origin/main" });
-  });
-
-  it("reconciles a missing turn selection to the latest available turn", () => {
-    const missingTurnId = RunId.make("turn-missing");
-    const latestTurnId = RunId.make("turn-latest");
-    useDiffPanelStore.getState().selectTurn(THREAD_REF, missingTurnId, "src/app.ts");
-    useDiffPanelStore.getState().reconcileTurnSelection(THREAD_REF, [latestTurnId]);
-
-    expect(
-      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({
-      kind: "turn",
-      turnId: latestTurnId,
-      filePath: "src/app.ts",
-      revealRequestId: 1,
-    });
-  });
-
-  it("persists expanded and viewed files until the thread is removed", () => {
-    const scopeKey = `${THREAD_REF.environmentId}:${THREAD_REF.threadId}:branch`;
-    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, "src/app.ts");
-    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, "src/app.ts");
-
-    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
-      expandedFileKeys: ["src/app.ts"],
-      viewedFileKeys: ["src/app.ts"],
-    });
-    expect(
-      useDiffPanelStore.persist.getOptions().partialize?.(useDiffPanelStore.getState()),
-    ).toMatchObject({
-      diffFileUiStateByScopeKey: {
-        [scopeKey]: {
-          expandedFileKeys: ["src/app.ts"],
-          viewedFileKeys: ["src/app.ts"],
-        },
+  it("refreshes a live tool-call target when its source item completes", () => {
+    const target = {
+      threadId: ThreadId.make("child"),
+      itemId: TurnItemId.make("edit"),
+      revision: "live",
+    };
+    const now = DateTime.makeUnsafe("2026-10-28T00:00:00Z");
+    const row = {
+      position: 0,
+      visibility: "local" as const,
+      sourceThreadId: target.threadId,
+      sourceItemId: target.itemId,
+      item: {
+        id: target.itemId,
+        threadId: target.threadId,
+        runId: null,
+        nodeId: null,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 1,
+        status: "running" as const,
+        title: null,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+        type: "file_change" as const,
+        fileName: "a.ts",
       },
+    };
+    expect(resolveToolCallDiffTarget(target, [row])).toBe(target);
+    const completed = {
+      ...row,
+      item: { ...row.item, status: "completed" as const, completedAt: now },
+    };
+    expect(resolveToolCallDiffTarget(target, [completed])).toEqual({
+      ...target,
+      revision: DateTime.formatIso(now),
     });
-
-    useDiffPanelStore.getState().removeThread(THREAD_REF);
-    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toBeUndefined();
+    expect(
+      resolveToolCallDiffTarget(target, [{ ...completed, sourceThreadId: ThreadId.make("other") }]),
+    ).toBe(target);
+    expect(resolveToolCallDiffTarget(target, [])).toBe(target);
   });
 
-  it("keeps unchanged file state while removing stale content keys", () => {
-    const scopeKey = `${THREAD_REF.environmentId}:${THREAD_REF.threadId}:branch`;
-    const unchangedKey = "src/app.ts:unchanged";
-    const changedKey = "src/other.ts:old";
-    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, unchangedKey);
-    useDiffPanelStore.getState().toggleDiffFileExpanded(scopeKey, changedKey);
-    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, unchangedKey);
-    useDiffPanelStore.getState().toggleDiffFileViewed(scopeKey, changedKey);
-
-    useDiffPanelStore
-      .getState()
-      .reconcileDiffFileUiState(scopeKey, [unchangedKey, "src/other.ts:new"]);
-
-    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
-      expandedFileKeys: [unchangedKey],
-      viewedFileKeys: [unchangedKey],
-    });
-  });
-  it("preserves later batches until all file fingerprints are loaded", () => {
-    const scopeKey = `${THREAD_REF.environmentId}:${THREAD_REF.threadId}:branch`;
+  it("returns from a local source to the branch base it left", () => {
+    const ref = { environmentId: EnvironmentId.make("env"), threadId: ThreadId.make("thread") };
     const store = useDiffPanelStore.getState();
-    store.toggleDiffFileViewed(scopeKey, "first:content");
-    store.toggleDiffFileViewed(scopeKey, "later:content");
-    store.toggleDiffFileExpanded(scopeKey, "later:content");
-    store.toggleDiffFileViewed(scopeKey, "changed:old");
-
-    store.reconcileDiffFileUiState(
-      scopeKey,
-      ["first:content", "later:pending", "changed:pending"],
-      false,
-    );
-    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
-      expandedFileKeys: ["later:content"],
-      viewedFileKeys: ["first:content", "later:content", "changed:old"],
+    store.selectBranchBaseRef(ref, "origin/release");
+    store.selectLocalSource(ref, "staged");
+    expect(useDiffPanelStore.getState().byThreadKey[scopedThreadKey(ref)]).toEqual({
+      kind: "local",
+      source: "staged",
     });
-
-    store.reconcileDiffFileUiState(
-      scopeKey,
-      ["first:content", "later:content", "changed:new"],
-      true,
-    );
-    expect(useDiffPanelStore.getState().diffFileUiStateByScopeKey[scopeKey]).toEqual({
-      expandedFileKeys: ["later:content"],
-      viewedFileKeys: ["first:content", "later:content"],
+    store.selectGitScope(ref, "branch");
+    expect(useDiffPanelStore.getState().byThreadKey[scopedThreadKey(ref)]).toEqual({
+      kind: "branch",
+      baseRef: "origin/release",
     });
   });
-});
 
-describe("diffPanelSessionStore", () => {
-  beforeEach(() => {
-    useDiffPanelStore.setState({
-      byThreadKey: {},
-      branchBaseRefByThreadKey: {},
+  it("drops viewed files whose content changed and forgets them with the thread", () => {
+    const ref = { environmentId: EnvironmentId.make("env"), threadId: ThreadId.make("thread") };
+    const scopeKey = "env:thread:branch";
+    const store = useDiffPanelStore.getState();
+    store.toggleDiffFileViewed(scopeKey, "a.ts:old");
+    store.toggleDiffFileViewed(scopeKey, "b.ts:same");
+    store.pruneViewedDiffFiles(scopeKey, ["a.ts:new", "b.ts:same"]);
+    expect(useDiffPanelStore.getState().viewedFileKeysByScopeKey[scopeKey]).toEqual(["b.ts:same"]);
+
+    store.removeThread(ref);
+    expect(useDiffPanelStore.getState().viewedFileKeysByScopeKey).toEqual({});
+  });
+
+  it("migrates both version 2 layouts without misreading the older fork's scopes", async () => {
+    const { migrate } = useDiffPanelStore.persist.getOptions();
+    const migrated = await migrate?.(
+      {
+        byThreadKey: {
+          upstream: { kind: "commit", sha: "abc", baseRef: "main" },
+          forkCommit: { kind: "commit", commitSha: "def" },
+          forkWorkingTree: { kind: "working-tree" },
+          forkStaged: { kind: "staged" },
+          unknown: { kind: "split" },
+        },
+        branchBaseRefByThreadKey: { upstream: "main" },
+        diffFileUiStateByScopeKey: {
+          "env:thread:branch": { expandedFileKeys: ["x"], viewedFileKeys: ["a.ts:1"] },
+        },
+        diffRenderMode: "split",
+      },
+      2,
+    );
+    expect(migrated).toEqual({
+      byThreadKey: {
+        upstream: { kind: "commit", sha: "abc", baseRef: "main" },
+        forkWorkingTree: { kind: "unstaged" },
+        forkStaged: { kind: "local", source: "staged" },
+      },
+      branchBaseRefByThreadKey: { upstream: "main" },
+      viewedFileKeysByScopeKey: { "env:thread:branch": ["a.ts:1"] },
     });
-    useDiffPanelSessionStore.setState({ collapsedFileKeysByScopeKey: {} });
   });
 
   it("retains fold choices when a panel consumer returns with fresh defaults", () => {

@@ -1,13 +1,13 @@
 export function areAllDiffFilesCollapsed(
   fileKeys: ReadonlyArray<string>,
-  expandedFileKeys: ReadonlySet<string>,
+  collapsedFileKeys: ReadonlySet<string>,
 ): boolean {
-  return fileKeys.length > 0 && fileKeys.every((fileKey) => !expandedFileKeys.has(fileKey));
+  return fileKeys.length > 0 && fileKeys.every((fileKey) => collapsedFileKeys.has(fileKey));
 }
 
-export function toggleAllDiffFileExpansion(
+export function toggleAllDiffFiles(
   fileKeys: ReadonlyArray<string>,
-  expandedFileKeys: ReadonlySet<string>,
+  collapsedFileKeys: ReadonlySet<string>,
 ): ReadonlySet<string> {
-  return areAllDiffFilesCollapsed(fileKeys, expandedFileKeys) ? new Set(fileKeys) : new Set();
+  return areAllDiffFilesCollapsed(fileKeys, collapsedFileKeys) ? new Set() : new Set(fileKeys);
 }

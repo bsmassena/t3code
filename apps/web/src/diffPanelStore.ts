@@ -1,55 +1,116 @@
+import type { ThreadStructureVisibleTurnItem } from "@t3tools/client-runtime/state/shell";
+import { turnItemDetailRevision } from "@t3tools/client-runtime/work-log/item-detail";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { RunId, ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  ReviewLocalDiffPreviewSourceKind,
+  RunId,
+  ScopedThreadRef,
+  ThreadId,
+  TurnItemId,
+} from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
 
-export type DiffPanelSelection =
-  | { kind: "branch"; baseRef: string | null }
-  | { kind: "working-tree" }
-  | { kind: "unstaged" }
-  | { kind: "staged" }
-  | { kind: "commit"; commitSha: string }
-  | { kind: "turn"; turnId: RunId; filePath: string | null; revealRequestId: number };
-
-export type DiffRenderMode = "stacked" | "split";
-
-export interface DiffFileUiState {
-  readonly expandedFileKeys: ReadonlyArray<string>;
-  readonly viewedFileKeys: ReadonlyArray<string>;
+export interface ToolCallDiffTarget {
+  readonly threadId: ThreadId;
+  readonly itemId: TurnItemId;
+  readonly revision: string;
 }
 
+export type DiffPanelSelection =
+  | ({ kind: "tool-call" } & ToolCallDiffTarget)
+  | { kind: "branch"; baseRef: string | null }
+  | { kind: "unstaged" }
+  | { kind: "local"; source: ReviewLocalDiffPreviewSourceKind }
+  | { kind: "commit"; sha: string; baseRef: string | null }
+  | { kind: "turn"; turnId: RunId; filePath: string | null; revealRequestId: number };
+
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
-const DEFAULT_WORKING_TREE_SELECTION: DiffPanelSelection = { kind: "working-tree" };
-const EMPTY_DIFF_FILE_UI_STATE: DiffFileUiState = {
-  expandedFileKeys: [],
-  viewedFileKeys: [],
-};
 
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
-  diffFileUiStateByScopeKey: Record<string, DiffFileUiState>;
-  diffRenderMode: DiffRenderMode;
-  setDiffRenderMode: (mode: DiffRenderMode) => void;
-  selectGitScope: (
-    ref: ScopedThreadRef,
-    scope: "branch" | "working-tree" | "unstaged" | "staged",
-  ) => void;
+  viewedFileKeysByScopeKey: Record<string, ReadonlyArray<string>>;
+  selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
+  selectLocalSource: (ref: ScopedThreadRef, source: ReviewLocalDiffPreviewSourceKind) => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
-  selectCommit: (ref: ScopedThreadRef, commitSha: string) => void;
+  selectToolCall: (ref: ScopedThreadRef, target: ToolCallDiffTarget) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: RunId, filePath?: string) => void;
+  selectCommit: (ref: ScopedThreadRef, sha: string) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<RunId>) => void;
-  toggleDiffFileExpanded: (scopeKey: string, fileKey: string) => void;
-  setExpandedDiffFileKeys: (scopeKey: string, fileKeys: ReadonlyArray<string>) => void;
   toggleDiffFileViewed: (scopeKey: string, fileKey: string) => void;
-  reconcileDiffFileUiState: (
-    scopeKey: string,
-    fileKeys: ReadonlyArray<string>,
-    complete?: boolean,
-  ) => void;
+  // Keys are content fingerprints, so a file edited after it was viewed drops out here.
+  pruneViewedDiffFiles: (scopeKey: string, presentFileKeys: ReadonlyArray<string>) => void;
   removeThread: (ref: ScopedThreadRef) => void;
+}
+
+type PersistedDiffPanelState = Pick<
+  DiffPanelStoreState,
+  "byThreadKey" | "branchBaseRefByThreadKey" | "viewedFileKeysByScopeKey"
+>;
+
+function withViewedFileKeys(
+  viewedFileKeysByScopeKey: Record<string, ReadonlyArray<string>>,
+  scopeKey: string,
+  fileKeys: ReadonlyArray<string>,
+): Record<string, ReadonlyArray<string>> {
+  if (fileKeys.length > 0) return { ...viewedFileKeysByScopeKey, [scopeKey]: fileKeys };
+  const { [scopeKey]: _removed, ...rest } = viewedFileKeysByScopeKey;
+  return rest;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+// Version 2 has two layouts: upstream's, and an older fork's where "working-tree" meant
+// Uncommitted, "staged" was the index diff, and commits carried `commitSha`.
+function migrateSelection(value: unknown): DiffPanelSelection | null {
+  if (!isRecord(value)) return null;
+  const baseRef = typeof value.baseRef === "string" ? value.baseRef : null;
+  switch (value.kind) {
+    case "branch":
+      return { kind: "branch", baseRef };
+    case "working-tree":
+    case "unstaged":
+      return { kind: "unstaged" };
+    case "staged":
+      return { kind: "local", source: "staged" };
+    case "commit":
+      return typeof value.sha === "string" ? { kind: "commit", sha: value.sha, baseRef } : null;
+    case "turn":
+    case "tool-call":
+      return value as DiffPanelSelection;
+    default:
+      return null;
+  }
+}
+
+function migratePersistedDiffPanelState(persisted: unknown): PersistedDiffPanelState {
+  const state = isRecord(persisted) ? persisted : {};
+  const byThreadKey: Record<string, DiffPanelSelection> = {};
+  if (isRecord(state.byThreadKey)) {
+    for (const [threadKey, value] of Object.entries(state.byThreadKey)) {
+      const selection = migrateSelection(value);
+      if (selection) byThreadKey[threadKey] = selection;
+    }
+  }
+  const viewedFileKeysByScopeKey: Record<string, ReadonlyArray<string>> = {};
+  if (isRecord(state.diffFileUiStateByScopeKey)) {
+    for (const [scopeKey, value] of Object.entries(state.diffFileUiStateByScopeKey)) {
+      if (!isRecord(value) || !Array.isArray(value.viewedFileKeys)) continue;
+      const fileKeys = value.viewedFileKeys.filter((key) => typeof key === "string");
+      if (fileKeys.length > 0) viewedFileKeysByScopeKey[scopeKey] = fileKeys;
+    }
+  }
+  return {
+    byThreadKey,
+    branchBaseRefByThreadKey: isRecord(state.branchBaseRefByThreadKey)
+      ? (state.branchBaseRefByThreadKey as Record<string, string | null>)
+      : {},
+    viewedFileKeysByScopeKey,
+  };
 }
 
 function normalizeBaseRef(baseRef: string | null): string | null {
@@ -57,10 +118,14 @@ function normalizeBaseRef(baseRef: string | null): string | null {
   return normalized ? normalized : null;
 }
 
-function toggleFileKey(fileKeys: ReadonlyArray<string>, fileKey: string): ReadonlyArray<string> {
-  return fileKeys.includes(fileKey)
-    ? fileKeys.filter((candidate) => candidate !== fileKey)
-    : [...fileKeys, fileKey];
+function branchBaseRef(
+  state: Pick<DiffPanelStoreState, "byThreadKey" | "branchBaseRefByThreadKey">,
+  threadKey: string,
+): string | null {
+  const previous = state.byThreadKey[threadKey];
+  return previous?.kind === "branch" || previous?.kind === "commit"
+    ? previous.baseRef
+    : (state.branchBaseRefByThreadKey[threadKey] ?? null);
 }
 
 export const useDiffPanelStore = create<DiffPanelStoreState>()(
@@ -68,25 +133,34 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     (set) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
-      diffFileUiStateByScopeKey: {},
-      diffRenderMode: "stacked",
-      setDiffRenderMode: (diffRenderMode) => set({ diffRenderMode }),
+      viewedFileKeysByScopeKey: {},
+      selectLocalSource: (ref, source) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          const previous = state.byThreadKey[threadKey];
+          return {
+            byThreadKey: { ...state.byThreadKey, [threadKey]: { kind: "local", source } },
+            branchBaseRefByThreadKey:
+              previous?.kind === "branch" || previous?.kind === "commit"
+                ? { ...state.branchBaseRefByThreadKey, [threadKey]: previous.baseRef }
+                : state.branchBaseRefByThreadKey,
+          };
+        }),
       selectGitScope: (ref, scope) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
           const previous = state.byThreadKey[threadKey];
-          const previousBaseRef =
-            previous?.kind === "branch"
-              ? previous.baseRef
-              : (state.branchBaseRefByThreadKey[threadKey] ?? null);
+          const previousBaseRef = branchBaseRef(state, threadKey);
           return {
             byThreadKey: {
               ...state.byThreadKey,
               [threadKey]:
-                scope === "branch" ? { kind: "branch", baseRef: previousBaseRef } : { kind: scope },
+                scope === "branch"
+                  ? { kind: "branch", baseRef: previousBaseRef }
+                  : { kind: "unstaged" },
             },
             branchBaseRefByThreadKey:
-              previous?.kind === "branch"
+              previous?.kind === "branch" || previous?.kind === "commit"
                 ? { ...state.branchBaseRefByThreadKey, [threadKey]: previous.baseRef }
                 : state.branchBaseRefByThreadKey,
           };
@@ -106,18 +180,13 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
-      selectCommit: (ref, commitSha) =>
-        set((state) => {
-          const normalizedCommitSha = commitSha.trim();
-          if (!normalizedCommitSha) return state;
-          const threadKey = scopedThreadKey(ref);
-          return {
-            byThreadKey: {
-              ...state.byThreadKey,
-              [threadKey]: { kind: "commit", commitSha: normalizedCommitSha },
-            },
-          };
-        }),
+      selectToolCall: (ref, target) =>
+        set((state) => ({
+          byThreadKey: {
+            ...state.byThreadKey,
+            [scopedThreadKey(ref)]: { kind: "tool-call", ...target },
+          },
+        })),
       selectTurn: (ref, turnId, filePath) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -128,10 +197,22 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
               [threadKey]: {
                 kind: "turn",
                 turnId,
-                filePath: filePath?.trim() || null,
+                filePath: filePath ?? null,
                 revealRequestId: previous?.kind === "turn" ? previous.revealRequestId + 1 : 1,
               },
             },
+          };
+        }),
+      selectCommit: (ref, sha) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          const baseRef = branchBaseRef(state, threadKey);
+          return {
+            byThreadKey: {
+              ...state.byThreadKey,
+              [threadKey]: { kind: "commit", sha, baseRef },
+            },
+            branchBaseRefByThreadKey: { ...state.branchBaseRefByThreadKey, [threadKey]: baseRef },
           };
         }),
       reconcileTurnSelection: (ref, availableTurnIds) =>
@@ -153,112 +234,68 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
-      toggleDiffFileExpanded: (scopeKey, fileKey) =>
-        set((state) => {
-          const current = state.diffFileUiStateByScopeKey[scopeKey] ?? EMPTY_DIFF_FILE_UI_STATE;
-          return {
-            diffFileUiStateByScopeKey: {
-              ...state.diffFileUiStateByScopeKey,
-              [scopeKey]: {
-                ...current,
-                expandedFileKeys: toggleFileKey(current.expandedFileKeys, fileKey),
-              },
-            },
-          };
-        }),
-      setExpandedDiffFileKeys: (scopeKey, fileKeys) =>
-        set((state) => {
-          const current = state.diffFileUiStateByScopeKey[scopeKey] ?? EMPTY_DIFF_FILE_UI_STATE;
-          return {
-            diffFileUiStateByScopeKey: {
-              ...state.diffFileUiStateByScopeKey,
-              [scopeKey]: { ...current, expandedFileKeys: [...new Set(fileKeys)] },
-            },
-          };
-        }),
       toggleDiffFileViewed: (scopeKey, fileKey) =>
         set((state) => {
-          const current = state.diffFileUiStateByScopeKey[scopeKey] ?? EMPTY_DIFF_FILE_UI_STATE;
+          const current = state.viewedFileKeysByScopeKey[scopeKey] ?? [];
+          const next = current.includes(fileKey)
+            ? current.filter((candidate) => candidate !== fileKey)
+            : [...current, fileKey];
           return {
-            diffFileUiStateByScopeKey: {
-              ...state.diffFileUiStateByScopeKey,
-              [scopeKey]: {
-                ...current,
-                viewedFileKeys: toggleFileKey(current.viewedFileKeys, fileKey),
-              },
-            },
+            viewedFileKeysByScopeKey: withViewedFileKeys(
+              state.viewedFileKeysByScopeKey,
+              scopeKey,
+              next,
+            ),
           };
         }),
-      reconcileDiffFileUiState: (scopeKey, fileKeys, complete = true) =>
+      pruneViewedDiffFiles: (scopeKey, presentFileKeys) =>
         set((state) => {
-          // Pending patches have placeholder fingerprints, not the saved content keys.
-          if (!complete) return state;
-          const current = state.diffFileUiStateByScopeKey[scopeKey];
+          const current = state.viewedFileKeysByScopeKey[scopeKey];
           if (!current) return state;
-
-          const activeFileKeys = new Set(fileKeys);
-          const expandedFileKeys = current.expandedFileKeys.filter((fileKey) =>
-            activeFileKeys.has(fileKey),
-          );
-          const viewedFileKeys = current.viewedFileKeys.filter((fileKey) =>
-            activeFileKeys.has(fileKey),
-          );
-          if (
-            expandedFileKeys.length === current.expandedFileKeys.length &&
-            viewedFileKeys.length === current.viewedFileKeys.length
-          ) {
-            return state;
-          }
-
-          if (expandedFileKeys.length === 0 && viewedFileKeys.length === 0) {
-            const { [scopeKey]: _removed, ...diffFileUiStateByScopeKey } =
-              state.diffFileUiStateByScopeKey;
-            return { diffFileUiStateByScopeKey };
-          }
-
+          const present = new Set(presentFileKeys);
+          const next = current.filter((fileKey) => present.has(fileKey));
+          if (next.length === current.length) return state;
           return {
-            diffFileUiStateByScopeKey: {
-              ...state.diffFileUiStateByScopeKey,
-              [scopeKey]: { expandedFileKeys, viewedFileKeys },
-            },
+            viewedFileKeysByScopeKey: withViewedFileKeys(
+              state.viewedFileKeysByScopeKey,
+              scopeKey,
+              next,
+            ),
           };
         }),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
-          const diffScopePrefix = `${threadKey}:`;
-          const hasDiffFileUiState = Object.keys(state.diffFileUiStateByScopeKey).some((scopeKey) =>
-            scopeKey.startsWith(diffScopePrefix),
+          const scopePrefix = `${ref.environmentId}:${ref.threadId}:`;
+          const viewedScopeKeys = Object.keys(state.viewedFileKeysByScopeKey).filter((scopeKey) =>
+            scopeKey.startsWith(scopePrefix),
           );
           if (
             !(threadKey in state.byThreadKey) &&
             !(threadKey in state.branchBaseRefByThreadKey) &&
-            !hasDiffFileUiState
+            viewedScopeKeys.length === 0
           ) {
             return state;
           }
           const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
           const { [threadKey]: _removedBaseRef, ...branchBaseRefByThreadKey } =
             state.branchBaseRefByThreadKey;
-          const diffFileUiStateByScopeKey = Object.fromEntries(
-            Object.entries(state.diffFileUiStateByScopeKey).filter(
-              ([scopeKey]) => !scopeKey.startsWith(diffScopePrefix),
-            ),
-          );
-          return { byThreadKey, branchBaseRefByThreadKey, diffFileUiStateByScopeKey };
+          const viewedFileKeysByScopeKey = { ...state.viewedFileKeysByScopeKey };
+          for (const scopeKey of viewedScopeKeys) delete viewedFileKeysByScopeKey[scopeKey];
+          return { byThreadKey, branchBaseRefByThreadKey, viewedFileKeysByScopeKey };
         }),
     }),
     {
       name: "t3code:diff-panel-state:v1",
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
-      partialize: (state) => ({
+      migrate: migratePersistedDiffPanelState,
+      partialize: (state): PersistedDiffPanelState => ({
         byThreadKey: state.byThreadKey,
         branchBaseRefByThreadKey: state.branchBaseRefByThreadKey,
-        diffFileUiStateByScopeKey: state.diffFileUiStateByScopeKey,
-        diffRenderMode: state.diffRenderMode,
+        viewedFileKeysByScopeKey: state.viewedFileKeysByScopeKey,
       }),
     },
   ),
@@ -271,9 +308,13 @@ interface DiffPanelSessionStoreState {
     defaults: ReadonlySet<string>,
     update: (current: ReadonlySet<string>) => ReadonlySet<string>,
   ) => void;
+  // Null follows the diffIgnoreWhitespace setting until the panel toggle is used.
+  ignoreWhitespace: boolean | null;
+  setIgnoreWhitespace: (ignoreWhitespace: boolean) => void;
 }
 
-// Session-only so folds survive right-panel switches without changing reload defaults.
+// Session-only so folds and the whitespace toggle survive right-panel switches without
+// changing reload defaults.
 export const useDiffPanelSessionStore = create<DiffPanelSessionStoreState>()((set) => ({
   collapsedFileKeysByScopeKey: {},
   updateCollapsedFileKeys: (scopeKey, defaults, update) =>
@@ -285,14 +326,33 @@ export const useDiffPanelSessionStore = create<DiffPanelSessionStoreState>()((se
         collapsedFileKeysByScopeKey: { ...state.collapsedFileKeysByScopeKey, [scopeKey]: next },
       };
     }),
+  ignoreWhitespace: null,
+  setIgnoreWhitespace: (ignoreWhitespace) => set({ ignoreWhitespace }),
 }));
 
 export function selectThreadDiffPanelSelection(
   byThreadKey: Record<string, DiffPanelSelection>,
   ref: ScopedThreadRef | null | undefined,
-  hasWorkingTreeChanges = false,
 ): DiffPanelSelection {
-  const fallback = hasWorkingTreeChanges ? DEFAULT_WORKING_TREE_SELECTION : DEFAULT_SELECTION;
-  if (!ref) return fallback;
-  return byThreadKey[scopedThreadKey(ref)] ?? fallback;
+  if (!ref) return DEFAULT_SELECTION;
+  return byThreadKey[scopedThreadKey(ref)] ?? DEFAULT_SELECTION;
+}
+
+export function selectThreadBranchBaseRef(
+  state: Pick<DiffPanelStoreState, "byThreadKey" | "branchBaseRefByThreadKey">,
+  ref: ScopedThreadRef | null | undefined,
+): string | null {
+  return ref ? branchBaseRef(state, scopedThreadKey(ref)) : null;
+}
+
+export function resolveToolCallDiffTarget(
+  target: ToolCallDiffTarget,
+  items: ReadonlyArray<ThreadStructureVisibleTurnItem>,
+): ToolCallDiffTarget {
+  const row = items.find(
+    (row) => row.sourceThreadId === target.threadId && row.sourceItemId === target.itemId,
+  );
+  if (row?.item.type !== "file_change") return target;
+  const revision = turnItemDetailRevision(row.item);
+  return revision === target.revision ? target : { ...target, revision };
 }

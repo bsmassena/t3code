@@ -1,12 +1,14 @@
 import { EnvironmentId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { deriveLogicalProjectKeyFromSettings } from "./logicalProject";
+import {
+  deriveLogicalProjectKeyFromSettings,
+  pickableProjectGroups,
+} from "@t3tools/client-runtime/state/project-grouping";
 import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
   resolveSidebarProjectScopeKey,
-  resolveSidebarProjectScopeKeys,
   getSidebarProjectSettingsKey,
 } from "./sidebarProjectGrouping";
 import type { Project } from "./types";
@@ -121,27 +123,6 @@ describe("environment grouping", () => {
     });
     const key = deriveLogicalProjectKeyFromSettings(ordinary, defaultGroupingSettings);
     expect(resolveSidebarProjectScopeKey({ groups, key, canClearMissingScope: true })).toBe(key);
-  });
-
-  it("keeps the remaining projects of a multi-project scope", () => {
-    const project = makeProject();
-    const groups = buildSidebarProjectSnapshots({
-      projects: [project],
-      groupScratchProjects: true,
-      settings: defaultGroupingSettings,
-      primaryEnvironmentId,
-      resolveEnvironmentLabel: () => null,
-    });
-    const key = deriveLogicalProjectKeyFromSettings(project, defaultGroupingSettings);
-    expect(
-      resolveSidebarProjectScopeKeys({ groups, keys: [key, "gone"], canClearMissingScope: true }),
-    ).toEqual([key]);
-    expect(
-      resolveSidebarProjectScopeKeys({ groups, keys: ["gone"], canClearMissingScope: true }),
-    ).toBeNull();
-    expect(
-      resolveSidebarProjectScopeKeys({ groups, keys: [], canClearMissingScope: true }),
-    ).toEqual([]);
   });
 
   it("dedupes stale project rows with the same environment and workspace path", () => {
@@ -296,5 +277,28 @@ describe("environment grouping", () => {
       environmentId: primaryEnvironmentId,
       id: fallbackPrimary.id,
     });
+  });
+
+  it("puts the preferred project before pinned projects", () => {
+    const project = (title: string, pinnedAt: string | null = null) =>
+      makeProject({
+        id: ProjectId.make(title),
+        title,
+        workspaceRoot: `/tmp/${title}`,
+        repositoryIdentity: null,
+        pinnedAt,
+      });
+    const current = project("current");
+    const groups = buildSidebarProjectSnapshots({
+      projects: [project("other"), project("pinned", "2026-01-01T00:00:00.000Z"), current],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: () => null,
+    });
+    const entries = buildSidebarProjectPickerEntries({
+      groups: pickableProjectGroups(groups),
+      preferredProjectRef: { environmentId: current.environmentId, projectId: current.id },
+    });
+    expect(entries.map((entry) => entry.group.displayName)).toEqual(["current", "pinned", "other"]);
   });
 });

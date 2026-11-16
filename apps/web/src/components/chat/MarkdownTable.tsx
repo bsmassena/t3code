@@ -1,4 +1,4 @@
-import { Check, Copy, Maximize2 } from "lucide";
+import { CheckIcon, CopyIcon, Maximize2Icon } from "lucide-react";
 import { useRef, useState, type ComponentProps } from "react";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -6,14 +6,12 @@ import {
   serializeTableElementToCsv,
   serializeTableElementToMarkdown,
 } from "../../markdown-clipboard";
-import { MorphIcon } from "../MorphIcon";
 import { Button } from "../ui/button";
+import { Dialog, DialogPopup } from "../ui/dialog";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { reportMarkdownActionFailure } from "./markdownActionFailure";
-
-import { Dialog, DialogPopup } from "../ui/dialog";
 
 export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -23,8 +21,8 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
     onError: (cause, format) =>
       reportMarkdownActionFailure({ operation: "copy-table", format }, cause),
   });
-  const expandLabel = "Expand table";
   const copyLabel = copied ? "Copied" : "Copy table";
+
   const handleCopy = (format: "markdown" | "csv") => {
     const table = containerRef.current?.querySelector("table");
     if (!table) return;
@@ -41,7 +39,8 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
       <ScrollArea radius="none" chainVerticalScroll scrollFade className="w-full max-w-full">
         <table {...props}>{children}</table>
       </ScrollArea>
-      <div className="mt-0.5 flex items-center justify-between select-none">
+      {/* Stays within the row's px-1: the chat lane clips sideways overflow. */}
+      <div className="mt-0.5 -mx-1 flex items-center justify-between select-none">
         <Tooltip>
           <TooltipTrigger
             render={
@@ -50,13 +49,13 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
                 variant="ghost-muted"
                 size="icon-xs"
                 onClick={() => setExpandedOpen(true)}
-                aria-label={expandLabel}
+                aria-label="Expand table"
               />
             }
           >
-            <MorphIcon className="size-3" icon={Maximize2} />
+            <Maximize2Icon className="size-3" />
           </TooltipTrigger>
-          <TooltipPopup side="top">{expandLabel}</TooltipPopup>
+          <TooltipPopup side="top">Expand table</TooltipPopup>
         </Tooltip>
         <Menu>
           <Tooltip>
@@ -74,7 +73,7 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
                 />
               }
             >
-              <MorphIcon className="size-3" icon={copied ? Check : Copy} />
+              {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
             </TooltipTrigger>
             <TooltipPopup side="top">{copyLabel}</TooltipPopup>
           </Tooltip>
@@ -87,7 +86,7 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
       <Dialog open={expandedOpen} onOpenChange={setExpandedOpen}>
         <DialogPopup aria-label="Expanded table" className="max-h-[90vh] w-fit max-w-[95vw]">
           <ScrollArea className="min-h-0 flex-1">
-            <div className="chat-markdown chat-markdown-table-dialog p-6">
+            <div className="chat-markdown p-6">
               <table {...props}>{children}</table>
             </div>
           </ScrollArea>
