@@ -172,20 +172,23 @@ describe("buildSidebarProjectScopeItems", () => {
   });
 
   it("lists projects flat when they share one parent directory", () => {
-    const items = buildSidebarProjectScopeItems([
-      group("a", "/home/me/code/a"),
-      group("b", "/home/me/code/b/"),
-    ]);
+    const items = buildSidebarProjectScopeItems(
+      [group("a", "/home/me/code/a"), group("b", "/home/me/code/b/")],
+      "All projects",
+    );
     expect(items.map((item) => item.value)).toEqual(["all", "a", "b"]);
   });
 
   it("groups projects under their parent directories", () => {
-    const items = buildSidebarProjectScopeItems([
-      group("a", "C:\\Users\\me\\projetos\\a"),
-      group("b", "/home/me/work/b"),
-      group("c", "C:\\Users\\me\\projetos\\c"),
-      group("scratch", "/tmp/scratch/1", true),
-    ]);
+    const items = buildSidebarProjectScopeItems(
+      [
+        group("a", "C:\\Users\\me\\projetos\\a"),
+        group("b", "/home/me/work/b"),
+        group("c", "C:\\Users\\me\\projetos\\c"),
+        group("scratch", "/tmp/scratch/1", true),
+      ],
+      "All projects",
+    );
     expect(items.map((item) => [item.value, item.label, item.projectKeys ?? null])).toEqual([
       ["all", "All projects", null],
       ["folder:C:\\Users\\me\\projetos", "projetos", ["a", "c"]],
@@ -198,10 +201,10 @@ describe("buildSidebarProjectScopeItems", () => {
   });
 
   it("shows full paths for folders that share a name", () => {
-    const items = buildSidebarProjectScopeItems([
-      group("a", "/home/me/code/a"),
-      group("b", "/srv/code/b"),
-    ]);
+    const items = buildSidebarProjectScopeItems(
+      [group("a", "/home/me/code/a"), group("b", "/srv/code/b")],
+      "All projects",
+    );
     expect(items.filter((item) => item.projectKeys).map((item) => item.label)).toEqual([
       "/home/me/code",
       "/srv/code",
@@ -210,11 +213,14 @@ describe("buildSidebarProjectScopeItems", () => {
 });
 
 describe("filterSidebarProjectScopeItems", () => {
-  const items = buildSidebarProjectScopeItems([
-    { projectKey: "api", displayName: "api", workspaceRoot: "/home/me/work/api" },
-    { projectKey: "web", displayName: "web", workspaceRoot: "/home/me/work/web" },
-    { projectKey: "notes", displayName: "notes", workspaceRoot: "/home/me/personal/notes" },
-  ]);
+  const items = buildSidebarProjectScopeItems(
+    [
+      { projectKey: "api", displayName: "api", workspaceRoot: "/home/me/work/api" },
+      { projectKey: "web", displayName: "web", workspaceRoot: "/home/me/work/web" },
+      { projectKey: "notes", displayName: "notes", workspaceRoot: "/home/me/personal/notes" },
+    ],
+    "All projects",
+  );
   const filter = (query: string) =>
     filterSidebarProjectScopeItems({
       items,
@@ -604,22 +610,44 @@ describe("resolveThreadStatusPill", () => {
   });
 
   it("shows failed, not completed, when the unseen run failed", () => {
-    expect(
-      resolveThreadStatusPill({
-        thread: {
-          ...baseThread,
-          interactionMode: "default",
-          latestRun: { ...makeLatestRun(), status: "failed" },
-          lastVisitedAt: "2026-03-09T10:04:00.000Z",
-          runtime: {
-            ...baseThread.runtime,
-            status: "failed",
-            activeRunId: null,
-            lastError: "Provider turn failed.",
-          },
+    const failed = {
+      ...baseThread,
+      interactionMode: "default" as const,
+      latestRun: { ...makeLatestRun(), status: "failed" as const },
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+      runtime: {
+        ...baseThread.runtime,
+        status: "failed" as const,
+        activeRunId: null,
+        lastError: "Provider turn failed.",
+      },
+    };
+    expect(resolveThreadStatusPill({ thread: failed })).toMatchObject({
+      label: "Failed",
+      pulse: false,
+    });
+    // The failure sends the thread to the inbox, so its pill must not say it is still waiting.
+    const watching = {
+      ...failed,
+      pendingBackgroundTasks: [
+        {
+          taskId: "pr-watch",
+          description: "Watching pull request #7",
+          kind: "monitor" as const,
+          awaited: true as const,
         },
-      }),
-    ).toMatchObject({ label: "Failed", pulse: false });
+      ],
+    };
+    expect(isSidebarThreadWorking(watching)).toBe(false);
+    expect(resolveThreadStatusPill({ thread: watching })).toMatchObject({ label: "Failed" });
+    // A run blocked on another thread is still waiting, as its sidebar row says.
+    const blocked = {
+      ...watching,
+      runtime: { ...failed.runtime, status: "running" as const },
+      blockedOnThreadWait: true,
+    };
+    expect(resolveSidebarThreadStatus(blocked)).toBe("waiting");
+    expect(resolveThreadStatusPill({ thread: blocked })).toMatchObject({ label: "Waiting" });
   });
 
   it("shows failed, not plan ready, when a plan run proposed a plan and then failed", () => {
